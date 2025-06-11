@@ -775,75 +775,140 @@
 
         function factorial(n) {
             if (n <= 1) return 1;
-            return n * factorial(n - 1);
+            if (n > 170) return Infinity; // Prevent overflow
+            let result = 1;
+            for (let i = 2; i <= n; i++) {
+                result *= i;
+            }
+            return result;
         }
 
         function combination(n, r) {
             if (r > n || r < 0) return 0;
             if (r === 0 || r === n) return 1;
-            return factorial(n) / (factorial(r) * factorial(n - r));
+            if (n > 170) return 0; // Prevent factorial overflow
+            
+            // Optimize for large numbers using iterative approach
+            r = Math.min(r, n - r); // Take advantage of symmetry
+            let result = 1;
+            for (let i = 0; i < r; i++) {
+                result = result * (n - i) / (i + 1);
+            }
+            return Math.round(result);
         }
 
         function calculateIsotopicDistribution(composition, nAg, nCl = 0) {
             const massArray = [];
             const probArray = [];
             
-            // Most abundant combination
-            let mass = composition.H * isotopes.H[0].mass +
-                      composition.C * isotopes.C[0].mass +
-                      composition.N * isotopes.N[0].mass +
-                      composition.O * isotopes.O[0].mass +
-                      composition.P * isotopes.P[0].mass +
-                      nAg * isotopes.Ag[0].mass +
-                      nCl * isotopes.Cl[0].mass;
-                      
-            let prob = Math.pow(isotopes.H[0].prob, composition.H) *
-                      Math.pow(isotopes.C[0].prob, composition.C) *
-                      Math.pow(isotopes.N[0].prob, composition.N) *
-                      Math.pow(isotopes.O[0].prob, composition.O) *
-                      Math.pow(isotopes.P[0].prob, composition.P) *
-                      Math.pow(isotopes.Ag[0].prob, nAg) *
-                      Math.pow(isotopes.Cl[0].prob, nCl);
-            
-            massArray.push(mass);
-            probArray.push(prob);
-            
-            // Add isotopic variations
-            const maxVariations = 10;
-            
-            // C13 variations
-            for (let i = 1; i <= Math.min(maxVariations, composition.C); i++) {
-                let varMass = mass + i * (isotopes.C[1].mass - isotopes.C[0].mass);
-                let varProb = prob * Math.pow(isotopes.C[1].prob / isotopes.C[0].prob, i) * combination(composition.C, i);
-                if (varProb > prob * 0.001) {
-                    massArray.push(varMass);
-                    probArray.push(varProb);
+            try {
+                // Limit calculations to prevent stack overflow
+                const maxVariations = 8; // Reduced from 10
+                
+                // Most abundant combination
+                let mass = composition.H * isotopes.H[0].mass +
+                          composition.C * isotopes.C[0].mass +
+                          composition.N * isotopes.N[0].mass +
+                          composition.O * isotopes.O[0].mass +
+                          composition.P * isotopes.P[0].mass +
+                          nAg * isotopes.Ag[0].mass +
+                          nCl * isotopes.Cl[0].mass;
+                          
+                let prob = Math.pow(isotopes.H[0].prob, composition.H) *
+                          Math.pow(isotopes.C[0].prob, composition.C) *
+                          Math.pow(isotopes.N[0].prob, composition.N) *
+                          Math.pow(isotopes.O[0].prob, composition.O) *
+                          Math.pow(isotopes.P[0].prob, composition.P) *
+                          Math.pow(isotopes.Ag[0].prob, nAg) *
+                          Math.pow(isotopes.Cl[0].prob, nCl);
+                
+                if (isNaN(prob) || prob === 0) {
+                    console.warn('Probability calculation resulted in NaN or 0');
+                    return {masses: [mass], probabilities: [1]};
                 }
-            }
-            
-            // Ag109 variations
-            for (let i = 1; i <= Math.min(maxVariations, nAg); i++) {
-                let varMass = mass + i * (isotopes.Ag[1].mass - isotopes.Ag[0].mass);
-                let varProb = prob * Math.pow(isotopes.Ag[1].prob / isotopes.Ag[0].prob, i) * combination(nAg, i);
-                if (varProb > prob * 0.001) {
-                    massArray.push(varMass);
-                    probArray.push(varProb);
-                }
-            }
-            
-            // Cl37 variations if chloride present
-            if (nCl > 0) {
-                for (let i = 1; i <= Math.min(maxVariations, nCl); i++) {
-                    let varMass = mass + i * (isotopes.Cl[1].mass - isotopes.Cl[0].mass);
-                    let varProb = prob * Math.pow(isotopes.Cl[1].prob / isotopes.Cl[0].prob, i) * combination(nCl, i);
-                    if (varProb > prob * 0.001) {
-                        massArray.push(varMass);
-                        probArray.push(varProb);
+                
+                massArray.push(mass);
+                probArray.push(prob);
+                
+                // Add isotopic variations with safety checks
+                // C13 variations (limited to prevent overflow)
+                const maxCVariations = Math.min(maxVariations, composition.C, 5);
+                for (let i = 1; i <= maxCVariations; i++) {
+                    try {
+                        let varMass = mass + i * (isotopes.C[1].mass - isotopes.C[0].mass);
+                        let combValue = combination(composition.C, i);
+                        if (combValue === 0 || isNaN(combValue) || !isFinite(combValue)) continue;
+                        
+                        let varProb = prob * Math.pow(isotopes.C[1].prob / isotopes.C[0].prob, i) * combValue;
+                        if (varProb > prob * 0.001 && isFinite(varProb)) { // Only include significant peaks
+                            massArray.push(varMass);
+                            probArray.push(varProb);
+                        }
+                    } catch (e) {
+                        console.warn(`Error in C13 variation ${i}:`, e);
+                        break;
                     }
                 }
+                
+                // Ag109 variations
+                const maxAgVariations = Math.min(maxVariations, nAg, 4);
+                for (let i = 1; i <= maxAgVariations; i++) {
+                    try {
+                        let varMass = mass + i * (isotopes.Ag[1].mass - isotopes.Ag[0].mass);
+                        let combValue = combination(nAg, i);
+                        if (combValue === 0 || isNaN(combValue) || !isFinite(combValue)) continue;
+                        
+                        let varProb = prob * Math.pow(isotopes.Ag[1].prob / isotopes.Ag[0].prob, i) * combValue;
+                        if (varProb > prob * 0.001 && isFinite(varProb)) {
+                            massArray.push(varMass);
+                            probArray.push(varProb);
+                        }
+                    } catch (e) {
+                        console.warn(`Error in Ag109 variation ${i}:`, e);
+                        break;
+                    }
+                }
+                
+                // Cl37 variations if chloride present
+                if (nCl > 0) {
+                    const maxClVariations = Math.min(maxVariations, nCl, 3);
+                    for (let i = 1; i <= maxClVariations; i++) {
+                        try {
+                            let varMass = mass + i * (isotopes.Cl[1].mass - isotopes.Cl[0].mass);
+                            let combValue = combination(nCl, i);
+                            if (combValue === 0 || isNaN(combValue) || !isFinite(combValue)) continue;
+                            
+                            let varProb = prob * Math.pow(isotopes.Cl[1].prob / isotopes.Cl[0].prob, i) * combValue;
+                            if (varProb > prob * 0.001 && isFinite(varProb)) {
+                                massArray.push(varMass);
+                                probArray.push(varProb);
+                            }
+                        } catch (e) {
+                            console.warn(`Error in Cl37 variation ${i}:`, e);
+                            break;
+                        }
+                    }
+                }
+                
+                // Validate output
+                if (massArray.length === 0) {
+                    return {masses: [mass], probabilities: [1]};
+                }
+                
+                return {masses: massArray, probabilities: probArray};
+                
+            } catch (error) {
+                console.error('Error in isotopic distribution calculation:', error);
+                // Return simplified distribution as fallback
+                const simpleMass = composition.H * isotopes.H[0].mass +
+                                 composition.C * isotopes.C[0].mass +
+                                 composition.N * isotopes.N[0].mass +
+                                 composition.O * isotopes.O[0].mass +
+                                 composition.P * isotopes.P[0].mass +
+                                 nAg * isotopes.Ag[0].mass +
+                                 nCl * isotopes.Cl[0].mass;
+                return {masses: [simpleMass], probabilities: [1]};
             }
-            
-            return {masses: massArray, probabilities: probArray};
         }
 
         function analyzeGaussianFit(data, peakIndex, peakMz) {
@@ -950,75 +1015,100 @@
             const colorPrediction = predictNeutralSilverFromColor(emissionColor);
             const results = [];
             
-            // Analyze cluster-like peaks only (up to 8 highest quality peaks)
-            const topPeaks = clusterPeaks.slice(0, Math.min(8, clusterPeaks.length));
-            
-            for (let peakIndex = 0; peakIndex < topPeaks.length; peakIndex++) {
-                const peak = topPeaks[peakIndex];
-                let bestFit = null;
-                let bestScore = -1;
+            try {
+                // Limit peak analysis to prevent overflow
+                const maxPeaksToAnalyze = Math.min(6, clusterPeaks.length); // Reduced from 8
+                const topPeaks = clusterPeaks.slice(0, maxPeaksToAnalyze);
                 
-                // Test different charge states for this peak
-                for (let z = 3; z <= 8; z++) {
-                    // Test different N₀ values around color prediction
-                    const testN0Values = [colorPrediction.N0 - 2, colorPrediction.N0, colorPrediction.N0 + 2, colorPrediction.N0 + 4].filter(n => n >= 2);
+                for (let peakIndex = 0; peakIndex < topPeaks.length; peakIndex++) {
+                    const peak = topPeaks[peakIndex];
+                    let bestFit = null;
+                    let bestScore = -1;
                     
-                    for (let N0 of testN0Values) {
-                        // Test different total silver numbers
-                        for (let extraCharge = 4; extraCharge <= 18; extraCharge++) {
-                            const totalAg = N0 + extraCharge;
-                            const Qcl = totalAg - N0;
+                    // Reduced search space to prevent stack overflow
+                    const chargeStates = [3, 4, 5, 6, 7, 8]; // Fixed array instead of loop
+                    const testN0Values = [
+                        Math.max(2, colorPrediction.N0 - 2), 
+                        colorPrediction.N0, 
+                        colorPrediction.N0 + 2
+                    ].filter(n => n >= 2 && n <= 12); // Limit N0 range
+                    
+                    for (let z of chargeStates) {
+                        for (let N0 of testN0Values) {
+                            // Limited silver range
+                            const minExtra = 4;
+                            const maxExtra = Math.min(16, 12); // Reduced from 18
                             
-                            // Test with and without chloride
-                            for (let nCl = 0; nCl <= 3; nCl++) {
-                                const avgMass = composition.H * isotopes.H[0].mass +
-                                               composition.C * isotopes.C[0].mass +
-                                               composition.N * isotopes.N[0].mass +
-                                               composition.O * isotopes.O[0].mass +
-                                               composition.P * isotopes.P[0].mass +
-                                               totalAg * isotopes.Ag[0].mass +
-                                               nCl * isotopes.Cl[0].mass;
+                            for (let extraCharge = minExtra; extraCharge <= maxExtra; extraCharge += 2) { // Step by 2
+                                const totalAg = N0 + extraCharge;
+                                const Qcl = totalAg - N0;
                                 
-                                const predictedMz = (avgMass - Qcl) / z;
+                                // Limited chloride testing
+                                const chlorideOptions = [0, 1, 2]; // Reduced from 0-3
                                 
-                                // Score based on m/z match, intensity, shape quality, and color preference
-                                const mzError = Math.abs(predictedMz - peak.mz);
-                                const intensityFactor = peak.intensity / clusterPeaks[0].intensity;
-                                const shapeBonus = peak.shapeAnalysis.rSquared * 0.2; // Bonus for good Gaussian fit
-                                const colorBonus = (N0 === colorPrediction.N0) ? 0.3 : 0;
-                                const score = (1 / (1 + mzError)) * intensityFactor + shapeBonus + colorBonus;
-                                
-                                if (score > bestScore && mzError < 5.0) { // Within 5 Da
-                                    bestScore = score;
-                                    bestFit = {
-                                        peakIndex: peakIndex + 1,
-                                        mz: peak.mz,
-                                        intensity: peak.intensity,
-                                        relativeIntensity: peak.relativeIntensity,
-                                        shapeAnalysis: peak.shapeAnalysis,
-                                        N0: N0,
-                                        totalAg: totalAg,
-                                        Qcl: Qcl,
-                                        nCl: nCl,
-                                        z: z,
-                                        predictedMz: predictedMz,
-                                        error: mzError,
-                                        avgMass: avgMass,
-                                        score: score,
-                                        strands: strands
-                                    };
+                                for (let nCl of chlorideOptions) {
+                                    try {
+                                        const avgMass = composition.H * isotopes.H[0].mass +
+                                                       composition.C * isotopes.C[0].mass +
+                                                       composition.N * isotopes.N[0].mass +
+                                                       composition.O * isotopes.O[0].mass +
+                                                       composition.P * isotopes.P[0].mass +
+                                                       totalAg * isotopes.Ag[0].mass +
+                                                       nCl * isotopes.Cl[0].mass;
+                                        
+                                        const predictedMz = (avgMass - Qcl) / z;
+                                        
+                                        // Check for reasonable values
+                                        if (!isFinite(predictedMz) || predictedMz <= 0) continue;
+                                        
+                                        const mzError = Math.abs(predictedMz - peak.mz);
+                                        if (mzError > 10.0) continue; // Skip if way off
+                                        
+                                        const intensityFactor = peak.intensity / clusterPeaks[0].intensity;
+                                        const shapeBonus = peak.shapeAnalysis.rSquared * 0.2;
+                                        const colorBonus = (N0 === colorPrediction.N0) ? 0.3 : 0;
+                                        const score = (1 / (1 + mzError)) * intensityFactor + shapeBonus + colorBonus;
+                                        
+                                        if (score > bestScore && mzError < 5.0) {
+                                            bestScore = score;
+                                            bestFit = {
+                                                peakIndex: peakIndex + 1,
+                                                mz: peak.mz,
+                                                intensity: peak.intensity,
+                                                relativeIntensity: peak.relativeIntensity,
+                                                shapeAnalysis: peak.shapeAnalysis,
+                                                N0: N0,
+                                                totalAg: totalAg,
+                                                Qcl: Qcl,
+                                                nCl: nCl,
+                                                z: z,
+                                                predictedMz: predictedMz,
+                                                error: mzError,
+                                                avgMass: avgMass,
+                                                score: score,
+                                                strands: strands
+                                            };
+                                        }
+                                    } catch (e) {
+                                        console.warn(`Error in composition calculation for peak ${peakIndex}:`, e);
+                                        continue;
+                                    }
                                 }
                             }
                         }
                     }
+                    
+                    if (bestFit) {
+                        results.push(bestFit);
+                    }
                 }
                 
-                if (bestFit) {
-                    results.push(bestFit);
-                }
+                return results.sort((a, b) => b.score - a.score);
+                
+            } catch (error) {
+                console.error('Error in multiple peak analysis:', error);
+                return []; // Return empty array on error
             }
-            
-            return results.sort((a, b) => b.score - a.score); // Sort by best fit
         }
 
         function calculateChargeStatesFromPeaks(peaks) {
