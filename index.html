@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated DNA-Silver Nanocluster MS Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            padding: 30px;
+        }
+        
+        .input-panel {
+            background: #f8fafc;
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+        
+        .file-upload {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+            width: 100%;
+        }
+        
+        .file-upload input[type=file] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        
+        .file-upload-label {
+            display: block;
+            padding: 12px;
+            background: #f1f5f9;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            text-align: center;
+            color: #64748b;
+            transition: all 0.3s ease;
+        }
+        
+        .file-upload:hover .file-upload-label {
+            background: #e2e8f0;
+            border-color: #94a3b8;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3);
+        }
+        
+        .btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .results-panel {
+            background: white;
+            border-radius: 15px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+        
+        .results-header {
+            background: #f8fafc;
+            padding: 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .results-content {
+            padding: 20px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .plot-container {
+            margin-bottom: 30px;
+            height: 400px;
+        }
+        
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .analysis-card {
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #4f46e5;
+        }
+        
+        .analysis-card.green { border-left-color: #10b981; }
+        .analysis-card.red { border-left-color: #ef4444; }
+        .analysis-card.nir { border-left-color: #8b5cf6; }
+        
+        .analysis-card h4 {
+            color: #4f46e5;
+            margin-bottom: 5px;
+        }
+        
+        .peak-results {
+            margin-top: 20px;
+        }
+        
+        .peak-item {
+            background: #f8fafc;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+        }
+        
+        .status.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        
+        .status.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+        
+        .status.error {
+            background: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fca5a5;
+        }
+        
+        .status.warning {
+            background: #fef3c7;
+            color: #d97706;
+            border: 1px solid #fcd34d;
+        }
+        
+        .peak-selector {
+            background: #f1f5f9;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 1px solid #cbd5e1;
+        }
+        
+        .peak-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .peak-button {
+            background: linear-gradient(135deg, #e2e8f0, #f1f5f9);
+            border: 2px solid #cbd5e1;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .peak-button:hover {
+            background: linear-gradient(135deg, #ddd6fe, #e0e7ff);
+            border-color: #8b5cf6;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(139, 92, 246, 0.2);
+        }
+        
+        .peak-button.cluster {
+            border-color: #10b981;
+            background: linear-gradient(135deg, #d1fae5, #ecfdf5);
+        }
+        
+        .peak-button.cluster:hover {
+            background: linear-gradient(135deg, #a7f3d0, #d1fae5);
+            border-color: #059669;
+        }
+        
+        .peak-button.non-cluster {
+            border-color: #f59e0b;
+            background: linear-gradient(135deg, #fef3c7, #fffbeb);
+        }
+        
+        .peak-button.non-cluster:hover {
+            background: linear-gradient(135deg, #fde68a, #fef3c7);
+            border-color: #d97706;
+        }
+        
+        .peak-button.selected {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            border-color: #4f46e5;
+            font-weight: 600;
+        }
+        
+        .detailed-plot-container {
+            margin: 20px 0;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .peak-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .magic-number-info {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #f59e0b;
+        }
+        
+        .wavelength-prediction {
+            background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #8b5cf6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧬 Automated DNA-Silver Nanocluster Analyzer</h1>
+            <p>Fully automated peak detection, charge state calculation, and composition prediction</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="input-panel">
+                <h3 style="margin-bottom: 20px; color: #374151;">📥 Input Data</h3>
+                
+                <div class="form-group">
+                    <label for="dnaSequence">DNA Sequence:</label>
+                    <textarea id="dnaSequence" rows="3" placeholder="Enter DNA sequence (A, T, G, C)"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="emissionColor">Observed Emission Color:</label>
+                    <select id="emissionColor">
+                        <option value="green">🟢 Green (&lt;590 nm)</option>
+                        <option value="red" selected>🔴 Red (590-660 nm)</option>
+                        <option value="fred">🟠 Far-red (660-800 nm)</option>
+                        <option value="nir">🟣 NIR (&gt;800 nm)</option>
+                        <option value="unknown">❓ Unknown/Multiple colors</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Upload Mass Spec Data (.txt):</label>
+                    <div class="file-upload">
+                        <input type="file" id="fileInput" accept=".txt" multiple>
+                        <label for="fileInput" class="file-upload-label">
+                            📁 Click to upload or drag files here<br>
+                            <small>Format: m/z intensity (space or tab separated)</small>
+                        </label>
+                    </div>
+                </div>
+                
+                <button class="btn" onclick="analyzeData()">🚀 Auto-Analyze</button>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Analyzing peaks and predicting composition...</p>
+                </div>
+                
+                <div class="magic-number-info">
+                    <h4>🎨 Updated Color Classification</h4>
+                    <p><strong>🟢 Green:</strong> &lt;590 nm → N₀ = 4 neutral Ag</p>
+                    <p><strong>🔴 Red:</strong> 590-660 nm → N₀ = 6 neutral Ag</p>
+                    <p><strong>🟠 Far-red:</strong> 660-800 nm → N₀ = 8 neutral Ag</p>
+                    <p><strong>🟣 NIR:</strong> &gt;800 nm → N₀ = 10+ neutral Ag</p>
+                    <br>
+                    <p><strong>📊 Auto-determined from MS data:</strong></p>
+                    <p>• Number of DNA strands</p>
+                    <p>• Chloride content (from isotope patterns)</p>
+                    <p>• Total silver content</p>
+                    <p>• Cluster charge (Qcl)</p>
+                </div>
+            </div>
+            
+            <div class="results-panel">
+                <div class="results-header">
+                    <h3>🔬 Analysis Results</h3>
+                </div>
+                <div class="results-content" id="resultsContent">
+                    <div class="status info">
+                        <strong>🎯 Advanced Peak Shape Analysis:</strong>
+                        <ol style="margin-top: 10px; margin-left: 20px;">
+                            <li><strong>Gaussian Fitting:</strong> Tests R² correlation for ideal cluster shape</li>
+                            <li><strong>Peak Asymmetry:</strong> Measures left/right symmetry (should be ~1.0)</li>
+                            <li><strong>FWHM Analysis:</strong> Validates reasonable peak widths</li>
+                            <li><strong>Cluster Filtering:</strong> Only analyzes Gaussian-like peaks</li>
+                            <li><strong>Nanoparticle Detection:</strong> Flags broad/asymmetric peaks</li>
+                            <li><strong>Quality Scoring:</strong> Prioritizes high-quality cluster peaks</li>
+                        </ol>
+                        <p style="margin-top: 15px;"><strong>✨ Distinguishes true clusters from nanoparticles! 🧬</strong></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Isotope data
+        const isotopes = {
+            H: [{mass: 1.007825032, prob: 0.999885}, {mass: 2.014101778, prob: 0.000115}],
+            C: [{mass: 12.0107, prob: 0.9893}, {mass: 13.00335484, prob: 0.0107}],
+            N: [{mass: 14.003074, prob: 0.99636}, {mass: 15.0001089, prob: 0.00364}],
+            O: [{mass: 15.99491462, prob: 0.99757}, {mass: 16.99913176, prob: 0.00038}, {mass: 17.99915996, prob: 0.00205}],
+            P: [{mass: 30.973762, prob: 1.0}],
+            Ag: [{mass: 106.905097, prob: 0.51839}, {mass: 108.904752, prob: 0.48161}],
+            Cl: [{mass: 34.96885269, prob: 0.7576}, {mass: 36.96590258, prob: 0.2424}]
+        };
+
+        let selectedPeakData = null;
+
+        function createPeakSelector(allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, data, composition) {
+            const selectorDiv = document.createElement('div');
+            selectorDiv.className = 'peak-selector';
+            selectorDiv.innerHTML = `
+                <h4>🎯 Interactive Peak Selection</h4>
+                <p>Click any peak below to see detailed isotopic pattern comparison:</p>
+            `;
+            
+            const peakGrid = document.createElement('div');
+            peakGrid.className = 'peak-grid';
+            
+            // Add all peaks with proper classification
+            allPeaks.forEach((peak, index) => {
+                const isCluster = clusterPeaks.some(cp => cp.mz === peak.mz);
+                const composition = allCompositions.find(comp => Math.abs(comp.mz - peak.mz) < 0.1);
+                
+                const peakButton = document.createElement('div');
+                peakButton.className = `peak-button ${isCluster ? 'cluster' : 'non-cluster'}`;
+                peakButton.innerHTML = `
+                    <div style="font-weight: 600; margin-bottom: 4px;">
+                        ${isCluster ? '✅' : '⚠️'} Peak ${index + 1}
+                    </div>
+                    <div>m/z: ${peak.mz.toFixed(3)}</div>
+                    <div>${peak.relativeIntensity}% intensity</div>
+                    <div style="font-size: 12px; margin-top: 4px;">
+                        ${isCluster ? `R²=${peak.shapeAnalysis.rSquared.toFixed(2)}` : 'Non-Gaussian'}
+                    </div>
+                    ${composition ? `<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">Ag${composition.totalAg} N₀=${composition.N0}</div>` : ''}
+                `;
+                
+                peakButton.onclick = () => {
+                    // Remove previous selection
+                    document.querySelectorAll('.peak-button').forEach(btn => btn.classList.remove('selected'));
+                    peakButton.classList.add('selected');
+                    
+                    // Plot detailed comparison for this peak
+                    plotDetailedPeakComparison(peak, composition, data, isCluster);
+                };
+                
+                peakGrid.appendChild(peakButton);
+            });
+            
+            selectorDiv.appendChild(peakGrid);
+            return selectorDiv;
+        }
+
+        function plotDetailedPeakComparison(peak, composition, data, isCluster) {
+            // Remove existing detailed plot
+            const existingPlot = document.getElementById('detailed-plot-container');
+            if (existingPlot) {
+                existingPlot.remove();
+            }
+            
+            // Create new detailed plot container
+            const plotContainer = document.createElement('div');
+            plotContainer.id = 'detailed-plot-container';
+            plotContainer.className = 'detailed-plot-container';
+            
+            const plotHeader = document.createElement('div');
+            plotHeader.className = 'plot-header';
+            plotHeader.innerHTML = `
+                📊 Detailed Analysis: Peak at m/z ${peak.mz.toFixed(4)} 
+                ${isCluster ? '✅ (Cluster-like)' : '⚠️ (Non-cluster)'}
+                ${composition ? ` - Ag${composition.totalAg} N₀=${composition.N0}` : ' - No composition assigned'}
+            `;
+            
+            const plotDiv = document.createElement('div');
+            plotDiv.id = 'detailed-plot';
+            plotDiv.style.height = '400px';
+            plotDiv.style.padding = '20px';
+            
+            plotContainer.appendChild(plotHeader);
+            plotContainer.appendChild(plotDiv);
+            
+            // Insert after the peak selector
+            const resultsContent = document.getElementById('resultsContent');
+            const peakSelector = resultsContent.querySelector('.peak-selector');
+            if (peakSelector && peakSelector.nextSibling) {
+                resultsContent.insertBefore(plotContainer, peakSelector.nextSibling);
+            } else {
+                resultsContent.appendChild(plotContainer);
+            }
+            
+            // Create the detailed plot
+            const traces = [];
+            
+            // Experimental data trace (full spectrum in light gray)
+            const expTrace = {
+                x: data.map(d => d.mz),
+                y: data.map(d => d.intensity),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Experimental Spectrum',
+                line: {color: '#d1d5db', width: 1},
+                opacity: 0.6
+            };
+            traces.push(expTrace);
+            
+            // Highlight the selected peak region
+            const peakIndex = peak.index;
+            const windowSize = 100; // Data points around peak
+            const startIdx = Math.max(0, peakIndex - windowSize);
+            const endIdx = Math.min(data.length - 1, peakIndex + windowSize);
+            
+            const regionData = data.slice(startIdx, endIdx + 1);
+            
+            const regionTrace = {
+                x: regionData.map(d => d.mz),
+                y: regionData.map(d => d.intensity),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Selected Region',
+                line: {color: '#ef4444', width: 3}
+            };
+            traces.push(regionTrace);
+            
+            // Peak marker
+            const peakMarker = {
+                x: [peak.mz],
+                y: [peak.intensity],
+                type: 'scatter',
+                mode: 'markers',
+                name: `Peak m/z ${peak.mz.toFixed(4)}`,
+                marker: {
+                    color: isCluster ? '#10b981' : '#f59e0b',
+                    size: 12,
+                    symbol: isCluster ? 'circle' : 'x'
+                }
+            };
+            traces.push(peakMarker);
+            
+            // If there's a composition, add theoretical isotopic distribution
+            if (composition && isCluster) {
+                const isotopicDist = calculateIsotopicDistribution(
+                    analysisData.composition, 
+                    composition.totalAg, 
+                    composition.nCl
+                );
+                
+                // Calculate theoretical m/z values
+                const theoreticalMz = isotopicDist.masses.map(m => (m - composition.Qcl) / composition.z);
+                const maxIntensity = Math.max(...regionData.map(d => d.intensity));
+                const theoreticalIntensities = isotopicDist.probabilities.map(p => p * maxIntensity);
+                
+                const theoreticalTrace = {
+                    x: theoreticalMz,
+                    y: theoreticalIntensities,
+                    type: 'bar',
+                    name: `Theoretical Ag${composition.totalAg} (z=${composition.z})`,
+                    marker: {color: '#3b82f6'},
+                    opacity: 0.7,
+                    width: 0.2
+                };
+                traces.push(theoreticalTrace);
+                
+                // Add composition info as annotation
+                const layout_annotations = [{
+                    x: 0.02,
+                    y: 0.98,
+                    xref: 'paper',
+                    yref: 'paper',
+                    text: `Formula: C${analysisData.composition.C}H${analysisData.composition.H}N${analysisData.composition.N}O${analysisData.composition.O}P${analysisData.composition.P}Ag${composition.totalAg}${composition.nCl > 0 ? `Cl${composition.nCl}` : ''}<br>` +
+                          `N₀: ${composition.N0} | Qcl: ${composition.Qcl}+ | Error: ${composition.error.toFixed(3)} Da<br>` +
+                          `Shape: R²=${peak.shapeAnalysis.rSquared.toFixed(3)} | Asymmetry: ${peak.shapeAnalysis.asymmetry.toFixed(2)}`,
+                    showarrow: false,
+                    font: {size: 11, color: '#374151'},
+                    bgcolor: 'rgba(255,255,255,0.9)',
+                    bordercolor: '#d1d5db',
+                    borderwidth: 1,
+                    align: 'left'
+                }];
+            } else {
+                var layout_annotations = [{
+                    x: 0.02,
+                    y: 0.98,
+                    xref: 'paper',
+                    yref: 'paper',
+                    text: `Peak Shape Analysis:<br>` +
+                          `R²: ${peak.shapeAnalysis.rSquared.toFixed(3)} (${peak.shapeAnalysis.rSquared > 0.7 ? 'Good' : 'Poor'} Gaussian fit)<br>` +
+                          `Asymmetry: ${peak.shapeAnalysis.asymmetry.toFixed(2)} (${Math.abs(peak.shapeAnalysis.asymmetry - 1) < 0.5 ? 'Symmetric' : 'Asymmetric'})<br>` +
+                          `FWHM: ${peak.shapeAnalysis.fwhm.toFixed(3)} Da<br>` +
+                          `${isCluster ? '✅ Cluster-like' : '⚠️ Likely nanoparticle/aggregate'}`,
+                    showarrow: false,
+                    font: {size: 11, color: '#374151'},
+                    bgcolor: 'rgba(255,255,255,0.9)',
+                    bordercolor: '#d1d5db',
+                    borderwidth: 1,
+                    align: 'left'
+                }];
+            }
+            
+            const layout = {
+                title: `Peak Analysis: m/z ${peak.mz.toFixed(4)} (${peak.relativeIntensity}% intensity)`,
+                xaxis: {
+                    title: 'm/z',
+                    range: [regionData[0].mz - 2, regionData[regionData.length - 1].mz + 2]
+                },
+                yaxis: {title: 'Intensity'},
+                showlegend: true,
+                hovermode: 'closest',
+                plot_bgcolor: '#f8fafc',
+                paper_bgcolor: 'white',
+                annotations: layout_annotations
+            };
+            
+            Plotly.newPlot('detailed-plot', traces, layout, {responsive: true});
+        }
+
+        // Updated magic number wavelength correlations
+        function predictNeutralSilverFromColor(color) {
+            switch(color) {
+                case 'green':
+                    return { N0: 4, wavelengthRange: '<590 nm', confidence: 'high' };
+                case 'red':
+                    return { N0: 6, wavelengthRange: '590-660 nm', confidence: 'high' };
+                case 'fred':
+                    return { N0: 8, wavelengthRange: '660-800 nm', confidence: 'high' };
+                case 'nir':
+                    return { N0: 10, wavelengthRange: '>800 nm', confidence: 'medium' };
+                default:
+                    return { N0: 6, wavelengthRange: 'unknown', confidence: 'low' };
+            }
+        }
+
+        function detectChlorideFromIsotopePattern(peaks, theoreticalMz) {
+            // Look for characteristic Cl isotope spacing (~2 Da)
+            const chlorideSpacing = 1.997; // Cl37 - Cl35
+            
+            for (let nCl = 0; nCl <= 4; nCl++) {
+                let matches = 0;
+                for (let peak of peaks.slice(0, 5)) {
+                    for (let clPeaks = 0; clPeaks <= nCl; clPeaks++) {
+                        const expectedMz = theoreticalMz + (clPeaks * chlorideSpacing);
+                        if (Math.abs(peak.mz - expectedMz) < 0.1) {
+                            matches++;
+                        }
+                    }
+                }
+                if (matches >= nCl) {
+                    return nCl;
+                }
+            }
+            return 0;
+        }
+
+        function determineStrandNumber(composition, peaks, dnaSequence) {
+            // Calculate mass for different strand numbers and see which fits best
+            const singleStrandComposition = calculateDNAComposition(dnaSequence, 1);
+            const singleStrandMass = singleStrandComposition.H * isotopes.H[0].mass +
+                                   singleStrandComposition.C * isotopes.C[0].mass +
+                                   singleStrandComposition.N * isotopes.N[0].mass +
+                                   singleStrandComposition.O * isotopes.O[0].mass +
+                                   singleStrandComposition.P * isotopes.P[0].mass;
+            
+            const dominantPeakMz = peaks[0].mz;
+            
+            // Test strand numbers 1-4
+            let bestFit = { strands: 2, score: 0 };
+            
+            for (let strands = 1; strands <= 4; strands++) {
+                const totalDNAMass = singleStrandMass * strands;
+                
+                // Test different silver contents
+                for (let totalAg = 10; totalAg <= 25; totalAg++) {
+                    for (let z = 3; z <= 8; z++) {
+                        const totalMass = totalDNAMass + totalAg * isotopes.Ag[0].mass;
+                        const predictedMz = totalMass / z;
+                        
+                        const error = Math.abs(predictedMz - dominantPeakMz);
+                        const score = 1 / (1 + error);
+                        
+                        if (score > bestFit.score) {
+                            bestFit = { strands, score, totalAg, z, error };
+                        }
+                    }
+                }
+            }
+            
+            return bestFit.strands;
+        }
+
+        function calculateDNAComposition(sequence, strands) {
+            let nH = 0, nC = 0, nN = 0, nO = 0, nP = 0;
+            
+            for (let base of sequence.toUpperCase()) {
+                switch(base) {
+                    case 'C':
+                        nC += 4; nH += 4; nN += 3; nO += 1;
+                        break;
+                    case 'G':
+                        nC += 5; nH += 4; nN += 5; nO += 1;
+                        break;
+                    case 'A':
+                        nC += 5; nH += 4; nN += 5; nO += 0;
+                        break;
+                    case 'T':
+                        nC += 5; nH += 5; nN += 2; nO += 2;
+                        break;
+                }
+            }
+            
+            // OH ends - corrected from chloride version
+            nH += 1;
+            nO += 2;
+            
+            // Phosphodiester bonds
+            nP = sequence.length - 1;
+            nO += nP * 4;
+            
+            // Deoxyriboses
+            nC += sequence.length * 5;
+            nH += sequence.length * 8;
+            nO += sequence.length;
+            
+            return {
+                H: nH * strands,
+                C: nC * strands,
+                N: nN * strands,
+                O: nO * strands,
+                P: nP * strands
+            };
+        }
+
+        function factorial(n) {
+            if (n <= 1) return 1;
+            return n * factorial(n - 1);
+        }
+
+        function combination(n, r) {
+            if (r > n || r < 0) return 0;
+            if (r === 0 || r === n) return 1;
+            return factorial(n) / (factorial(r) * factorial(n - r));
+        }
+
+        function calculateIsotopicDistribution(composition, nAg, nCl = 0) {
+            const massArray = [];
+            const probArray = [];
+            
+            // Most abundant combination
+            let mass = composition.H * isotopes.H[0].mass +
+                      composition.C * isotopes.C[0].mass +
+                      composition.N * isotopes.N[0].mass +
+                      composition.O * isotopes.O[0].mass +
+                      composition.P * isotopes.P[0].mass +
+                      nAg * isotopes.Ag[0].mass +
+                      nCl * isotopes.Cl[0].mass;
+                      
+            let prob = Math.pow(isotopes.H[0].prob, composition.H) *
+                      Math.pow(isotopes.C[0].prob, composition.C) *
+                      Math.pow(isotopes.N[0].prob, composition.N) *
+                      Math.pow(isotopes.O[0].prob, composition.O) *
+                      Math.pow(isotopes.P[0].prob, composition.P) *
+                      Math.pow(isotopes.Ag[0].prob, nAg) *
+                      Math.pow(isotopes.Cl[0].prob, nCl);
+            
+            massArray.push(mass);
+            probArray.push(prob);
+            
+            // Add isotopic variations
+            const maxVariations = 10;
+            
+            // C13 variations
+            for (let i = 1; i <= Math.min(maxVariations, composition.C); i++) {
+                let varMass = mass + i * (isotopes.C[1].mass - isotopes.C[0].mass);
+                let varProb = prob * Math.pow(isotopes.C[1].prob / isotopes.C[0].prob, i) * combination(composition.C, i);
+                if (varProb > prob * 0.001) {
+                    massArray.push(varMass);
+                    probArray.push(varProb);
+                }
+            }
+            
+            // Ag109 variations
+            for (let i = 1; i <= Math.min(maxVariations, nAg); i++) {
+                let varMass = mass + i * (isotopes.Ag[1].mass - isotopes.Ag[0].mass);
+                let varProb = prob * Math.pow(isotopes.Ag[1].prob / isotopes.Ag[0].prob, i) * combination(nAg, i);
+                if (varProb > prob * 0.001) {
+                    massArray.push(varMass);
+                    probArray.push(varProb);
+                }
+            }
+            
+            // Cl37 variations if chloride present
+            if (nCl > 0) {
+                for (let i = 1; i <= Math.min(maxVariations, nCl); i++) {
+                    let varMass = mass + i * (isotopes.Cl[1].mass - isotopes.Cl[0].mass);
+                    let varProb = prob * Math.pow(isotopes.Cl[1].prob / isotopes.Cl[0].prob, i) * combination(nCl, i);
+                    if (varProb > prob * 0.001) {
+                        massArray.push(varMass);
+                        probArray.push(varProb);
+                    }
+                }
+            }
+            
+            return {masses: massArray, probabilities: probArray};
+        }
+
+        function analyzeGaussianFit(data, peakIndex, peakMz) {
+            // Extract region around peak for Gaussian fitting
+            const windowSize = 50; // points around peak
+            const startIdx = Math.max(0, peakIndex - windowSize);
+            const endIdx = Math.min(data.length - 1, peakIndex + windowSize);
+            
+            const regionData = data.slice(startIdx, endIdx + 1);
+            const peakIntensity = data[peakIndex].intensity;
+            
+            // Simple Gaussian parameters estimation
+            let fwhm = 0;
+            let leftHalf = peakIndex;
+            let rightHalf = peakIndex;
+            const halfMax = peakIntensity * 0.5;
+            
+            // Find left half-maximum
+            for (let i = peakIndex; i >= startIdx; i--) {
+                if (data[i].intensity <= halfMax) {
+                    leftHalf = i;
+                    break;
+                }
+            }
+            
+            // Find right half-maximum
+            for (let i = peakIndex; i <= endIdx; i++) {
+                if (data[i].intensity <= halfMax) {
+                    rightHalf = i;
+                    break;
+                }
+            }
+            
+            fwhm = data[rightHalf].mz - data[leftHalf].mz;
+            
+            // Calculate asymmetry (should be close to 1 for Gaussian)
+            const leftWidth = peakMz - data[leftHalf].mz;
+            const rightWidth = data[rightHalf].mz - peakMz;
+            const asymmetry = rightWidth > 0 ? leftWidth / rightWidth : 0;
+            
+            // Calculate R² for Gaussian fit quality
+            const sigma = fwhm / (2 * Math.sqrt(2 * Math.log(2))); // Convert FWHM to sigma
+            let sumSquares = 0;
+            let sumSquaredResiduals = 0;
+            const meanIntensity = regionData.reduce((sum, d) => sum + d.intensity, 0) / regionData.length;
+            
+            for (let point of regionData) {
+                const expectedIntensity = peakIntensity * Math.exp(-0.5 * Math.pow((point.mz - peakMz) / sigma, 2));
+                const residual = point.intensity - expectedIntensity;
+                sumSquaredResiduals += residual * residual;
+                sumSquares += Math.pow(point.intensity - meanIntensity, 2);
+            }
+            
+            const rSquared = sumSquares > 0 ? 1 - (sumSquaredResiduals / sumSquares) : 0;
+            
+            // Peak quality assessment
+            const isGaussian = rSquared > 0.7 && asymmetry > 0.5 && asymmetry < 2.0 && fwhm > 0.1 && fwhm < 5.0;
+            const confidence = isGaussian ? 'high' : rSquared > 0.5 ? 'medium' : 'low';
+            
+            return {
+                fwhm: fwhm,
+                asymmetry: asymmetry,
+                rSquared: rSquared,
+                isGaussian: isGaussian,
+                confidence: confidence,
+                quality: isGaussian ? 'cluster-like' : 'non-cluster'
+            };
+        }
+
+        function detectPeaks(data) {
+            const peaks = [];
+            const maxIntensity = Math.max(...data.map(d => d.intensity));
+            const threshold = maxIntensity * 0.03; // 3% threshold for more sensitivity
+            
+            for (let i = 2; i < data.length - 2; i++) {
+                if (data[i].intensity > data[i-1].intensity && 
+                    data[i].intensity > data[i+1].intensity && 
+                    data[i].intensity > data[i-2].intensity &&
+                    data[i].intensity > data[i+2].intensity &&
+                    data[i].intensity > threshold) {
+                    
+                    // Analyze peak shape
+                    const shapeAnalysis = analyzeGaussianFit(data, i, data[i].mz);
+                    
+                    peaks.push({
+                        mz: data[i].mz,
+                        intensity: data[i].intensity,
+                        relativeIntensity: (data[i].intensity / maxIntensity * 100).toFixed(1),
+                        index: i,
+                        shapeAnalysis: shapeAnalysis
+                    });
+                }
+            }
+            
+            // Sort by intensity and filter by shape quality
+            const allPeaks = peaks.sort((a, b) => b.intensity - a.intensity);
+            const clusterPeaks = allPeaks.filter(p => p.shapeAnalysis.isGaussian);
+            const nonClusterPeaks = allPeaks.filter(p => !p.shapeAnalysis.isGaussian);
+            
+            return { clusterPeaks, nonClusterPeaks, allPeaks };
+        }
+
+        function analyzeMultiplePeaks(clusterPeaks, composition, dnaSequence, emissionColor, strands) {
+            const colorPrediction = predictNeutralSilverFromColor(emissionColor);
+            const results = [];
+            
+            // Analyze cluster-like peaks only (up to 8 highest quality peaks)
+            const topPeaks = clusterPeaks.slice(0, Math.min(8, clusterPeaks.length));
+            
+            for (let peakIndex = 0; peakIndex < topPeaks.length; peakIndex++) {
+                const peak = topPeaks[peakIndex];
+                let bestFit = null;
+                let bestScore = -1;
+                
+                // Test different charge states for this peak
+                for (let z = 3; z <= 8; z++) {
+                    // Test different N₀ values around color prediction
+                    const testN0Values = [colorPrediction.N0 - 2, colorPrediction.N0, colorPrediction.N0 + 2, colorPrediction.N0 + 4].filter(n => n >= 2);
+                    
+                    for (let N0 of testN0Values) {
+                        // Test different total silver numbers
+                        for (let extraCharge = 4; extraCharge <= 18; extraCharge++) {
+                            const totalAg = N0 + extraCharge;
+                            const Qcl = totalAg - N0;
+                            
+                            // Test with and without chloride
+                            for (let nCl = 0; nCl <= 3; nCl++) {
+                                const avgMass = composition.H * isotopes.H[0].mass +
+                                               composition.C * isotopes.C[0].mass +
+                                               composition.N * isotopes.N[0].mass +
+                                               composition.O * isotopes.O[0].mass +
+                                               composition.P * isotopes.P[0].mass +
+                                               totalAg * isotopes.Ag[0].mass +
+                                               nCl * isotopes.Cl[0].mass;
+                                
+                                const predictedMz = (avgMass - Qcl) / z;
+                                
+                                // Score based on m/z match, intensity, shape quality, and color preference
+                                const mzError = Math.abs(predictedMz - peak.mz);
+                                const intensityFactor = peak.intensity / clusterPeaks[0].intensity;
+                                const shapeBonus = peak.shapeAnalysis.rSquared * 0.2; // Bonus for good Gaussian fit
+                                const colorBonus = (N0 === colorPrediction.N0) ? 0.3 : 0;
+                                const score = (1 / (1 + mzError)) * intensityFactor + shapeBonus + colorBonus;
+                                
+                                if (score > bestScore && mzError < 5.0) { // Within 5 Da
+                                    bestScore = score;
+                                    bestFit = {
+                                        peakIndex: peakIndex + 1,
+                                        mz: peak.mz,
+                                        intensity: peak.intensity,
+                                        relativeIntensity: peak.relativeIntensity,
+                                        shapeAnalysis: peak.shapeAnalysis,
+                                        N0: N0,
+                                        totalAg: totalAg,
+                                        Qcl: Qcl,
+                                        nCl: nCl,
+                                        z: z,
+                                        predictedMz: predictedMz,
+                                        error: mzError,
+                                        avgMass: avgMass,
+                                        score: score,
+                                        strands: strands
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (bestFit) {
+                    results.push(bestFit);
+                }
+            }
+            
+            return results.sort((a, b) => b.score - a.score); // Sort by best fit
+        }
+
+        function calculateChargeStatesFromPeaks(peaks) {
+            const chargeStates = [];
+            
+            // Look for charge state patterns in peak spacing
+            for (let i = 0; i < peaks.length - 1; i++) {
+                for (let j = i + 1; j < peaks.length && j < i + 5; j++) {
+                    const delta_mz = peaks[i].mz - peaks[j].mz;
+                    
+                    // For charge states z, the spacing should be approximately M/z - M/(z+1) ≈ M/z²
+                    // Or for different charge states: delta_mz ≈ M*(1/z1 - 1/z2)
+                    
+                    for (let z = 3; z <= 8; z++) {
+                        const expectedMass = peaks[i].mz * z;
+                        const calculatedZ2 = expectedMass / peaks[j].mz;
+                        
+                        if (Math.abs(calculatedZ2 - Math.round(calculatedZ2)) < 0.1) {
+                            chargeStates.push({
+                                z1: z,
+                                z2: Math.round(calculatedZ2),
+                                mz1: peaks[i].mz,
+                                mz2: peaks[j].mz,
+                                estimatedMass: expectedMass,
+                                confidence: peaks[i].intensity + peaks[j].intensity
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Return most confident charge state assignment
+            chargeStates.sort((a, b) => b.confidence - a.confidence);
+            return chargeStates[0] || { z1: 5, z2: 4, estimatedMass: peaks[0].mz * 5, confidence: 0 };
+        }
+
+        function parseDataFile(text) {
+            const lines = text.trim().split('\n');
+            const data = [];
+            
+            for (let line of lines) {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 2) {
+                    const mz = parseFloat(parts[0]);
+                    const intensity = parseFloat(parts[1]);
+                    if (!isNaN(mz) && !isNaN(intensity)) {
+                        data.push({mz, intensity});
+                    }
+                }
+            }
+            
+            return data.sort((a, b) => a.mz - b.mz);
+        }
+
+        async function analyzeData() {
+            const loading = document.getElementById('loading');
+            const resultsContent = document.getElementById('resultsContent');
+            
+            try {
+                loading.style.display = 'block';
+                resultsContent.innerHTML = '';
+                
+                // Get input values
+                const dnaSequence = document.getElementById('dnaSequence').value.trim();
+                const emissionColor = document.getElementById('emissionColor').value;
+                const fileInput = document.getElementById('fileInput');
+                
+                if (!dnaSequence) {
+                    throw new Error('Please enter a DNA sequence');
+                }
+                
+                if (!/^[ATGC]+$/i.test(dnaSequence)) {
+                    throw new Error('DNA sequence should only contain A, T, G, C bases');
+                }
+
+                if (fileInput.files.length === 0) {
+                    throw new Error('Please upload mass spectrometry data file(s)');
+                }
+                
+                // Get N0 prediction from color
+                const colorPrediction = predictNeutralSilverFromColor(emissionColor);
+                
+                let html = `
+                    <div class="status success">
+                        ✅ DNA sequence analyzed: ${dnaSequence} (${dnaSequence.length} bases)
+                    </div>
+                    <div class="wavelength-prediction">
+                        <h4>🎨 Color-Based Prediction</h4>
+                        <p><strong>Emission color:</strong> ${emissionColor} (${colorPrediction.wavelengthRange})</p>
+                        <p><strong>Predicted N₀:</strong> ${colorPrediction.N0} neutral silver atoms</p>
+                        <p><strong>Confidence:</strong> ${colorPrediction.confidence}</p>
+                    </div>
+                `;
+                
+                // Process each uploaded file
+                for (let file of fileInput.files) {
+                    html += `<div style="margin-top: 30px;"><h3>📁 Analyzing: ${file.name}</h3>`;
+                    
+                    const text = await file.text();
+                    const data = parseDataFile(text);
+                    
+                    if (data.length === 0) {
+                        html += `<div class="status error">❌ No valid data found in ${file.name}</div>`;
+                        continue;
+                    }
+                    
+                    // Step 1: Detect and classify all peaks by shape
+                    const peakAnalysis = detectPeaks(data);
+                    const { clusterPeaks, nonClusterPeaks, allPeaks } = peakAnalysis;
+                    
+                    if (allPeaks.length === 0) {
+                        html += `<div class="status error">❌ No peaks detected in ${file.name}</div>`;
+                        continue;
+                    }
+                    
+                    html += `
+                        <div class="status info">
+                            🎯 Detected ${allPeaks.length} total peaks<br>
+                            ✅ ${clusterPeaks.length} cluster-like peaks (Gaussian shape)<br>
+                            ⚠️ ${nonClusterPeaks.length} non-cluster peaks (poor Gaussian fit)
+                        </div>
+                    `;
+                    
+                    // Show non-cluster peaks as warning
+                    if (nonClusterPeaks.length > 0) {
+                        html += `
+                            <div class="status warning">
+                                🚨 <strong>Non-cluster peaks detected:</strong><br>
+                                These peaks show poor Gaussian fits and likely represent nanoparticles or aggregates:<br>
+                                ${nonClusterPeaks.slice(0, 3).map(p => 
+                                    `m/z ${p.mz.toFixed(2)} (${p.relativeIntensity}%, R²=${p.shapeAnalysis.rSquared.toFixed(2)})`
+                                ).join(', ')}
+                                ${nonClusterPeaks.length > 3 ? ` and ${nonClusterPeaks.length - 3} more...` : ''}
+                            </div>
+                        `;
+                    }
+                    
+                    if (clusterPeaks.length === 0) {
+                        html += `<div class="status error">❌ No cluster-like peaks found - all peaks show non-Gaussian shapes</div>`;
+                        continue;
+                    }
+                    
+                    // Step 2: Determine strand number from cluster peaks only
+                    const predictedStrands = determineStrandNumber(null, clusterPeaks, dnaSequence);
+                    const composition = calculateDNAComposition(dnaSequence, predictedStrands);
+                    
+                    html += `
+                        <div class="status success">
+                            🧬 Auto-determined: ${predictedStrands} DNA strand(s)<br>
+                            📝 DNA composition: C${composition.C}H${composition.H}N${composition.N}O${composition.O}P${composition.P}
+                        </div>
+                    `;
+                    
+                    // Step 3: Analyze cluster peaks for compositions
+                    const allCompositions = analyzeMultiplePeaks(clusterPeaks, composition, dnaSequence, emissionColor, predictedStrands);
+                    
+                    if (allCompositions.length === 0) {
+                        html += `<div class="status warning">⚠️ Could not determine compositions for cluster-like peaks</div>`;
+                        continue;
+                    }
+                    
+                    html += `
+                        <div class="status success">
+                            ✅ Successfully analyzed ${allCompositions.length} cluster composition(s)
+                        </div>
+                    `;
+                    
+                    // Display all cluster compositions
+                    html += `<div style="margin-top: 20px;"><h4>📊 Silver Cluster Analysis</h4>`;
+                    
+                    allCompositions.forEach((comp, index) => {
+                        const matchQuality = comp.error < 0.5 ? 'excellent' : comp.error < 1.0 ? 'good' : comp.error < 2.0 ? 'moderate' : 'poor';
+                        const colorMatch = comp.N0 === colorPrediction.N0 ? '✅' : comp.N0 === colorPrediction.N0 - 2 ? '🟡' : comp.N0 === colorPrediction.N0 + 2 ? '🟡' : '⚠️';
+                        const isPrimaryPeak = index === 0 ? '👑 ' : '';
+                        const shapeQuality = comp.shapeAnalysis.confidence;
+                        
+                        html += `
+                            <div class="peak-item" style="border-left: 4px solid ${index === 0 ? '#4f46e5' : '#10b981'};">
+                                <h5>${isPrimaryPeak}Cluster Peak #${comp.peakIndex} (${comp.relativeIntensity}% intensity)</h5>
+                                <div class="analysis-grid">
+                                    <div class="analysis-card">
+                                        <h6>🧪 Composition</h6>
+                                        <p><strong>Formula:</strong> C${composition.C}H${composition.H}N${composition.N}O${composition.O}P${composition.P}Ag${comp.totalAg}${comp.nCl > 0 ? `Cl${comp.nCl}` : ''}</p>
+                                        <p><strong>Total Ag:</strong> ${comp.totalAg} atoms</p>
+                                        <p><strong>Neutral Ag (N₀):</strong> ${comp.N0} ${colorMatch}</p>
+                                        <p><strong>Cluster charge (Qcl):</strong> ${comp.Qcl}+</p>
+                                        <p><strong>Chloride:</strong> ${comp.nCl} Cl⁻</p>
+                                    </div>
+                                    <div class="analysis-card">
+                                        <h6>📏 Quality Assessment</h6>
+                                        <p><strong>Experimental m/z:</strong> ${comp.mz.toFixed(4)}</p>
+                                        <p><strong>Calculated m/z:</strong> ${comp.predictedMz.toFixed(4)}</p>
+                                        <p><strong>Error:</strong> ${comp.error.toFixed(4)} Da</p>
+                                        <p><strong>Charge state:</strong> z = ${comp.z}</p>
+                                        <p><strong>Shape quality:</strong> ${shapeQuality} (R²=${comp.shapeAnalysis.rSquared.toFixed(3)})</p>
+                                        <p><strong>Peak type:</strong> ${comp.shapeAnalysis.quality}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    
+                    // Create comprehensive plot with shape analysis
+                    plotMultipleCompositions(data, allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, composition, file.name);
+                    
+                    // Add interactive peak selector
+                    const peakSelector = createPeakSelector(allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, data, composition);
+                    document.getElementById('resultsContent').appendChild(peakSelector);
+                    
+                    // Store best composition for reference
+                    const bestComposition = allCompositions[0];
+                    analysisData = {
+                        composition,
+                        totalAg: bestComposition.totalAg,
+                        nCl: bestComposition.nCl,
+                        avgMass: bestComposition.avgMass,
+                        predictedMz: bestComposition.predictedMz,
+                        chargeState: bestComposition.z,
+                        clusterCharge: bestComposition.Qcl,
+                        N0: bestComposition.N0,
+                        strands: bestComposition.strands,
+                        emissionColor: emissionColor,
+                        allCompositions: allCompositions
+                    };
+                    
+                    html += '</div>';
+                }
+                
+                resultsContent.innerHTML = html;
+                
+            } catch (error) {
+                resultsContent.innerHTML = `<div class="status error">❌ Error: ${error.message}</div>`;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function plotMultipleCompositions(data, allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, composition, filename) {
+            const plotDiv = document.createElement('div');
+            plotDiv.className = 'plot-container';
+            plotDiv.id = `plot-${Date.now()}-${Math.random()}`;
+            document.getElementById('resultsContent').appendChild(plotDiv);
+            
+            const traces = [];
+            
+            // Experimental data trace
+            const expTrace = {
+                x: data.map(d => d.mz),
+                y: data.map(d => d.intensity),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Experimental',
+                line: {color: '#ef4444', width: 2}
+            };
+            traces.push(expTrace);
+            
+            // Cluster peaks (good Gaussian fits)
+            if (clusterPeaks.length > 0) {
+                const clusterTrace = {
+                    x: clusterPeaks.map(p => p.mz),
+                    y: clusterPeaks.map(p => p.intensity),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: `${clusterPeaks.length} Silver Clusters ✅`,
+                    marker: {color: '#10b981', size: 8, symbol: 'circle'},
+                    hovertemplate: 'Cluster m/z: %{x}<br>Intensity: %{y}<br>R²: %{customdata}<extra></extra>',
+                    customdata: clusterPeaks.map(p => p.shapeAnalysis.rSquared.toFixed(3))
+                };
+                traces.push(clusterTrace);
+            }
+            
+            // Non-cluster peaks (poor Gaussian fits)
+            if (nonClusterPeaks.length > 0) {
+                const nonClusterTrace = {
+                    x: nonClusterPeaks.map(p => p.mz),
+                    y: nonClusterPeaks.map(p => p.intensity),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: `${nonClusterPeaks.length} Non-clusters ⚠️`,
+                    marker: {color: '#f59e0b', size: 8, symbol: 'x'},
+                    hovertemplate: 'Non-cluster m/z: %{x}<br>Intensity: %{y}<br>R²: %{customdata}<extra></extra>',
+                    customdata: nonClusterPeaks.map(p => p.shapeAnalysis.rSquared.toFixed(3))
+                };
+                traces.push(nonClusterTrace);
+            }
+            
+            // Theoretical traces for cluster compositions only
+            const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444'];
+            const maxIntensity = Math.max(...data.map(d => d.intensity));
+            
+            allCompositions.slice(0, 5).forEach((comp, index) => {
+                const isotopicDist = calculateIsotopicDistribution(composition, comp.totalAg, comp.nCl);
+                
+                const theoreticalTrace = {
+                    x: isotopicDist.masses.map(m => (m - comp.Qcl) / comp.z),
+                    y: isotopicDist.probabilities.map(p => p * maxIntensity * 0.6 * (1 - index * 0.1)),
+                    type: 'scatter',
+                    mode: 'markers+lines',
+                    name: `Cluster #${comp.peakIndex}: Ag${comp.totalAg} (N₀=${comp.N0}, z=${comp.z})`,
+                    line: {color: colors[index % colors.length], width: 2},
+                    marker: {color: colors[index % colors.length], size: 4}
+                };
+                traces.push(theoreticalTrace);
+            });
+            
+            const layout = {
+                title: `${filename} - Shape-Filtered Analysis (${clusterPeaks.length} clusters, ${nonClusterPeaks.length} non-clusters)`,
+                xaxis: {title: 'm/z'},
+                yaxis: {title: 'Intensity'},
+                showlegend: true,
+                hovermode: 'closest',
+                plot_bgcolor: '#f8fafc',
+                paper_bgcolor: 'white',
+                height: 500,
+                annotations: nonClusterPeaks.length > 0 ? [{
+                    x: 0.02,
+                    y: 0.98,
+                    xref: 'paper',
+                    yref: 'paper',
+                    text: '⚠️ X marks = Non-Gaussian peaks (likely nanoparticles)',
+                    showarrow: false,
+                    font: {color: '#f59e0b', size: 12},
+                    bgcolor: 'rgba(255,255,255,0.8)',
+                    bordercolor: '#f59e0b',
+                    borderwidth: 1
+                }] : []
+            };
+            
+            Plotly.newPlot(plotDiv.id, traces, layout, {responsive: true});
+        }
+
+        // File upload handling
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const label = document.querySelector('.file-upload-label');
+            if (e.target.files.length > 0) {
+                label.innerHTML = `📁 ${e.target.files.length} file(s) selected<br><small>Ready for auto-analysis</small>`;
+                label.style.color = '#4f46e5';
+            } else {
+                label.innerHTML = '📁 Click to upload or drag files here<br><small>Format: m/z intensity (space or tab separated)</small>';
+                label.style.color = '#64748b';
+            }
+        });
+
+        // Example DNA sequence
+        document.getElementById('dnaSequence').value = 'CACCTAGCG';
+    </script>
+</body>
+</html>
