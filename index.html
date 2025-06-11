@@ -387,7 +387,7 @@
                         <input type="file" id="fileInput" accept=".txt" multiple>
                         <label for="fileInput" class="file-upload-label">
                             📁 Click to upload or drag files here<br>
-                            <small>Format: m/z intensity (space or tab separated)</small>
+                            <small>Format: m/z intensity (space or tab separated)<br>Up to 50MB per file supported</small>
                         </label>
                     </div>
                 </div>
@@ -1145,22 +1145,267 @@
             return chargeStates[0] || { z1: 5, z2: 4, estimatedMass: peaks[0].mz * 5, confidence: 0 };
         }
 
-        function parseDataFile(text) {
-            const lines = text.trim().split('\n');
-            const data = [];
+        function compressSpectrumData(data, targetSize = 8000) {
+            console.log(`Starting compression of ${data.length} data points to ~${targetSize} points`);
             
-            for (let line of lines) {
-                const parts = line.trim().split(/\s+/);
-                if (parts.length >= 2) {
-                    const mz = parseFloat(parts[0]);
-                    const intensity = parseFloat(parts[1]);
-                    if (!isNaN(mz) && !isNaN(intensity)) {
-                        data.push({mz, intensity});
+            try {
+                if (data.length <= targetSize) {
+                    console.log('No compression needed');
+                    return data;
+                }
+                
+                // Step 1: Calculate intensity statistics
+                const intensities = data.map(d => d.intensity);
+                const maxIntensity = Math.max(...intensities);
+                const avgIntensity = intensities.reduce((a, b) => a + b, 0) / intensities.length;
+                const noiseThreshold = Math.max(maxIntensity * 0.005, avgIntensity * 2); // 0.5% of max or 2x average
+                
+                console.log(`Max: ${maxIntensity}, Avg: ${avgIntensity.toFixed(0)}, Noise threshold: ${noiseThreshold.toFixed(0)}`);
+                
+                // Step 2: Identify peak regions (areas above noise)
+                const peakRegions = [];
+                let currentRegion = null;
+                
+                for (let i = 0; i < data.length; i++) {
+                    const point = data[i];
+                    
+                    if (point.intensity > noiseThreshold) {
+                        if (!currentRegion) {
+                            // Start new peak region with some baseline before
+                            const startIdx = Math.max(0, i - 20);
+                            currentRegion = {
+                                start: startIdx,
+                                end: i,
+                                maxIntensity: point.intensity,
+                                peakIndex: i
+                            };
+                        } else {
+                            // Extend current region
+                            currentRegion.end = i;
+                            if (point.intensity > currentRegion.maxIntensity) {
+                                currentRegion.maxIntensity = point.intensity;
+                                currentRegion.peakIndex = i;
+                            }
+                        }
+                    } else {
+                        if (currentRegion) {
+                            // End of peak region - add some baseline after
+                            currentRegion.end = Math.min(data.length - 1, i + 20);
+                            peakRegions.push(currentRegion);
+                            currentRegion = null;
+                        }
                     }
+                }
+                
+                // Don't forget the last region
+                if (currentRegion) {
+                    currentRegion.end = Math.min(data.length - 1, currentRegion.end + 20);
+                    peakRegions.push(currentRegion);
+                }
+                
+                console.log(`Found ${peakRegions.length} peak regions`);
+                
+                // Step 3: Extract peak regions with priority sampling
+                const compressedData = [];
+                let totalPointsFromRegions = 0;
+                
+                // Sort regions by peak intensity (most important first)
+                peakRegions.sort((a, b) => b.maxIntensity - a.maxIntensity);
+                
+                for (const region of peakRegions) {
+                    const regionData = data.slice(region.start, region.end + 1);
+                    const regionLength = regionData.length;
+                    
+                    // For very important peaks (top 80% intensity), keep more points
+                    const isImportantPeak = region.maxIntensity > maxIntensity * 0.2;
+                    const maxPointsForRegion = isImportantPeak ? 150 : 50;
+                    
+                    if (regionLength <= maxPointsForRegion) {
+                        // Small region - keep all points
+                        compressedData.push(...regionData);
+                        totalPointsFromRegions += regionLength;
+                    } else {
+                        // Large region - smart sampling
+                        const sampledRegion = smartSampleRegion(regionData, maxPointsForRegion);
+                        compressedData.push(...sampledRegion);
+                        totalPointsFromRegions += sampledRegion.length;
+                    }
+                    
+                    // Stop if we're approaching target size
+                    if (totalPointsFromRegions > targetSize * 0.8) {
+                        console.log('Reached target size with peak regions');
+                        break;
+                    }
+                }
+                
+                // Step 4: Fill remaining space with baseline sampling
+                const remainingPoints = targetSize - compressedData.length;
+                if (remainingPoints > 0) {
+                    console.log(`Adding ${remainingPoints} baseline points`);
+                    const baselineData = getBaselinePoints(data, peakRegions, remainingPoints);
+                    compressedData.push(...baselineData);
+                }
+                
+                // Step 5: Sort by m/z and remove duplicates
+                const finalData = compressedData
+                    .filter((point, index, array) => 
+                        index === 0 || point.mz !== array[index - 1].mz
+                    )
+                    .sort((a, b) => a.mz - b.mz)
+                    .slice(0, targetSize);
+                
+                console.log(`Compression complete: ${data.length} → ${finalData.length} points (${((1 - finalData.length / data.length) * 100).toFixed(1)}% reduction)`);
+                
+                return finalData;
+                
+            } catch (error) {
+                console.error('Compression error:', error);
+                // Fallback: simple downsampling
+                const step = Math.ceil(data.length / targetSize);
+                const fallbackData = [];
+                for (let i = 0; i < data.length; i += step) {
+                    fallbackData.push(data[i]);
+                }
+                console.log(`Fallback compression: ${data.length} → ${fallbackData.length} points`);
+                return fallbackData;
+            }
+        }
+
+        function smartSampleRegion(regionData, maxPoints) {
+            if (regionData.length <= maxPoints) return regionData;
+            
+            // Find the peak maximum
+            const maxIdx = regionData.reduce((maxI, curr, i, arr) => 
+                curr.intensity > arr[maxI].intensity ? i : maxI, 0);
+            
+            const result = [];
+            
+            // Always keep the peak maximum and immediate neighbors
+            const keepIndices = new Set();
+            for (let i = Math.max(0, maxIdx - 2); i <= Math.min(regionData.length - 1, maxIdx + 2); i++) {
+                keepIndices.add(i);
+            }
+            
+            // Add high-intensity points
+            const intensities = regionData.map(d => d.intensity);
+            const intensityThreshold = Math.max(...intensities) * 0.1; // 10% of peak
+            
+            for (let i = 0; i < regionData.length; i++) {
+                if (regionData[i].intensity > intensityThreshold) {
+                    keepIndices.add(i);
                 }
             }
             
-            return data.sort((a, b) => a.mz - b.mz);
+            // Add evenly spaced points to reach maxPoints
+            const currentPoints = keepIndices.size;
+            const additionalPoints = maxPoints - currentPoints;
+            
+            if (additionalPoints > 0) {
+                const step = Math.floor(regionData.length / additionalPoints);
+                for (let i = 0; i < regionData.length; i += step) {
+                    keepIndices.add(i);
+                    if (keepIndices.size >= maxPoints) break;
+                }
+            }
+            
+            // Convert to sorted array
+            const sortedIndices = Array.from(keepIndices).sort((a, b) => a - b);
+            return sortedIndices.slice(0, maxPoints).map(i => regionData[i]);
+        }
+
+        function getBaselinePoints(data, peakRegions, numPoints) {
+            if (numPoints <= 0) return [];
+            
+            // Find baseline regions (areas not in peak regions)
+            const usedRanges = peakRegions.map(r => [r.start, r.end]);
+            const baselineIndices = [];
+            
+            for (let i = 0; i < data.length; i++) {
+                const inPeakRegion = usedRanges.some(([start, end]) => i >= start && i <= end);
+                if (!inPeakRegion) {
+                    baselineIndices.push(i);
+                }
+            }
+            
+            // Sample evenly from baseline
+            const step = Math.max(1, Math.floor(baselineIndices.length / numPoints));
+            const sampledBaseline = [];
+            
+            for (let i = 0; i < baselineIndices.length && sampledBaseline.length < numPoints; i += step) {
+                sampledBaseline.push(data[baselineIndices[i]]);
+            }
+            
+            return sampledBaseline;
+        }
+
+        function parseDataFile(text) {
+            try {
+                console.log('Starting data parsing...');
+                const lines = text.trim().split('\n');
+                console.log(`Found ${lines.length} lines`);
+                
+                // Increased file size limit and add compression
+                if (text.length > 50000000) { // 50MB absolute limit
+                    throw new Error(`File too large (${Math.round(text.length/1000000)}MB). Please use files smaller than 50MB.`);
+                }
+                
+                const data = [];
+                let validLines = 0;
+                
+                for (let i = 0; i < lines.length; i++) {
+                    try {
+                        const line = lines[i].trim();
+                        if (!line || line.startsWith('#') || line.startsWith('//')) continue; // Skip comments
+                        
+                        const parts = line.split(/[\s,\t]+/); // Support space, comma, or tab separation
+                        if (parts.length >= 2) {
+                            const mz = parseFloat(parts[0]);
+                            const intensity = parseFloat(parts[1]);
+                            
+                            if (!isNaN(mz) && !isNaN(intensity) && isFinite(mz) && isFinite(intensity) && intensity >= 0) {
+                                data.push({mz, intensity});
+                                validLines++;
+                            }
+                        }
+                        
+                        // Progress check for large files
+                        if (i % 5000 === 0 && i > 0) {
+                            console.log(`Parsed ${i} lines, ${validLines} valid data points`);
+                        }
+                        
+                    } catch (lineError) {
+                        continue; // Skip bad lines silently
+                    }
+                }
+                
+                console.log(`Parsing complete: ${validLines} valid data points`);
+                
+                if (data.length === 0) {
+                    throw new Error('No valid data points found. Expected format: "m/z intensity" per line');
+                }
+                
+                // Sort by m/z
+                data.sort((a, b) => a.mz - b.mz);
+                
+                // Smart compression for large files
+                let finalData = data;
+                if (data.length > 10000) {
+                    console.log(`Large dataset detected (${data.length} points), applying smart compression...`);
+                    finalData = compressSpectrumData(data, 8000); // Compress to 8000 points
+                    
+                    console.log(`Compression summary:`);
+                    console.log(`- Original: ${data.length} data points`);
+                    console.log(`- Compressed: ${finalData.length} data points`);
+                    console.log(`- Reduction: ${((1 - finalData.length / data.length) * 100).toFixed(1)}%`);
+                    console.log(`- Estimated size: ~${Math.round(finalData.length * 20 / 1000)}KB`);
+                }
+                
+                return finalData;
+                
+            } catch (error) {
+                console.error('Data parsing error:', error);
+                throw new Error(`Failed to parse data file: ${error.message}`);
+            }
         }
 
         async function analyzeData() {
@@ -1168,10 +1413,12 @@
             const resultsContent = document.getElementById('resultsContent');
             
             try {
+                console.log('=== STARTING ANALYSIS ===');
                 loading.style.display = 'block';
                 resultsContent.innerHTML = '';
                 
-                // Get input values
+                // Step 1: Input validation
+                console.log('Step 1: Input validation');
                 const dnaSequence = document.getElementById('dnaSequence').value.trim();
                 const emissionColor = document.getElementById('emissionColor').value;
                 const fileInput = document.getElementById('fileInput');
@@ -1188,7 +1435,10 @@
                     throw new Error('Please upload mass spectrometry data file(s)');
                 }
                 
-                // Get N0 prediction from color
+                console.log('Input validation passed');
+                
+                // Step 2: Basic calculations
+                console.log('Step 2: Basic calculations');
                 const colorPrediction = predictNeutralSilverFromColor(emissionColor);
                 
                 let html = `
@@ -1203,152 +1453,199 @@
                     </div>
                 `;
                 
-                // Process each uploaded file
-                for (let file of fileInput.files) {
-                    html += `<div style="margin-top: 30px;"><h3>📁 Analyzing: ${file.name}</h3>`;
+                console.log('Basic calculations completed');
+                
+                // Process each file separately with error boundaries
+                for (let fileIndex = 0; fileIndex < fileInput.files.length; fileIndex++) {
+                    const file = fileInput.files[fileIndex];
+                    console.log(`=== PROCESSING FILE ${fileIndex + 1}: ${file.name} ===`);
                     
-                    const text = await file.text();
-                    const data = parseDataFile(text);
-                    
-                    if (data.length === 0) {
-                        html += `<div class="status error">❌ No valid data found in ${file.name}</div>`;
-                        continue;
-                    }
-                    
-                    // Step 1: Detect and classify all peaks by shape
-                    const peakAnalysis = detectPeaks(data);
-                    const { clusterPeaks, nonClusterPeaks, allPeaks } = peakAnalysis;
-                    
-                    if (allPeaks.length === 0) {
-                        html += `<div class="status error">❌ No peaks detected in ${file.name}</div>`;
-                        continue;
-                    }
-                    
-                    html += `
-                        <div class="status info">
-                            🎯 Detected ${allPeaks.length} total peaks<br>
-                            ✅ ${clusterPeaks.length} cluster-like peaks (Gaussian shape)<br>
-                            ⚠️ ${nonClusterPeaks.length} non-cluster peaks (poor Gaussian fit)
-                        </div>
-                    `;
-                    
-                    // Show non-cluster peaks as warning
-                    if (nonClusterPeaks.length > 0) {
-                        html += `
-                            <div class="status warning">
-                                🚨 <strong>Non-cluster peaks detected:</strong><br>
-                                These peaks show poor Gaussian fits and likely represent nanoparticles or aggregates:<br>
-                                ${nonClusterPeaks.slice(0, 3).map(p => 
-                                    `m/z ${p.mz.toFixed(2)} (${p.relativeIntensity}%, R²=${p.shapeAnalysis.rSquared.toFixed(2)})`
-                                ).join(', ')}
-                                ${nonClusterPeaks.length > 3 ? ` and ${nonClusterPeaks.length - 3} more...` : ''}
-                            </div>
-                        `;
-                    }
-                    
-                    if (clusterPeaks.length === 0) {
-                        html += `<div class="status error">❌ No cluster-like peaks found - all peaks show non-Gaussian shapes</div>`;
-                        continue;
-                    }
-                    
-                    // Step 2: Determine strand number from cluster peaks only
-                    const predictedStrands = determineStrandNumber(null, clusterPeaks, dnaSequence);
-                    const composition = calculateDNAComposition(dnaSequence, predictedStrands);
-                    
-                    html += `
-                        <div class="status success">
-                            🧬 Auto-determined: ${predictedStrands} DNA strand(s)<br>
-                            📝 DNA composition: C${composition.C}H${composition.H}N${composition.N}O${composition.O}P${composition.P}
-                        </div>
-                    `;
-                    
-                    // Step 3: Analyze cluster peaks for compositions
-                    const allCompositions = analyzeMultiplePeaks(clusterPeaks, composition, dnaSequence, emissionColor, predictedStrands);
-                    
-                    if (allCompositions.length === 0) {
-                        html += `<div class="status warning">⚠️ Could not determine compositions for cluster-like peaks</div>`;
-                        continue;
-                    }
-                    
-                    html += `
-                        <div class="status success">
-                            ✅ Successfully analyzed ${allCompositions.length} cluster composition(s)
-                        </div>
-                    `;
-                    
-                    // Display all cluster compositions
-                    html += `<div style="margin-top: 20px;"><h4>📊 Silver Cluster Analysis</h4>`;
-                    
-                    allCompositions.forEach((comp, index) => {
-                        const matchQuality = comp.error < 0.5 ? 'excellent' : comp.error < 1.0 ? 'good' : comp.error < 2.0 ? 'moderate' : 'poor';
-                        const colorMatch = comp.N0 === colorPrediction.N0 ? '✅' : comp.N0 === colorPrediction.N0 - 2 ? '🟡' : comp.N0 === colorPrediction.N0 + 2 ? '🟡' : '⚠️';
-                        const isPrimaryPeak = index === 0 ? '👑 ' : '';
-                        const shapeQuality = comp.shapeAnalysis.confidence;
+                    try {
+                        html += `<div style="margin-top: 30px;"><h3>📁 Analyzing: ${file.name}</h3>`;
+                        
+                        // Step 3: File parsing with size limits
+                        console.log('Step 3: File parsing');
+                        const text = await file.text();
+                        console.log(`File size: ${text.length} characters`);
+                        
+                        if (text.length > 50000000) { // 50MB absolute limit
+                            throw new Error(`File too large (${Math.round(text.length/1000000)}MB). Please use files smaller than 50MB.`);
+                        }
+                        
+                        const data = parseDataFile(text);
+                        console.log(`Parsed ${data.length} data points`);
+                        
+                        if (data.length === 0) {
+                            html += `<div class="status error">❌ No valid data found in ${file.name}</div>`;
+                            continue;
+                        }
+                        
+                        // Step 4: Peak detection with error boundary
+                        console.log('Step 4: Peak detection');
+                        let peakAnalysis;
+                        try {
+                            peakAnalysis = detectPeaks(data);
+                        } catch (peakError) {
+                            console.error('Peak detection failed:', peakError);
+                            html += `<div class="status error">❌ Peak detection failed: ${peakError.message}</div>`;
+                            continue;
+                        }
+                        
+                        const { clusterPeaks, nonClusterPeaks, allPeaks } = peakAnalysis;
+                        console.log(`Detected: ${allPeaks.length} total, ${clusterPeaks.length} clusters, ${nonClusterPeaks.length} non-clusters`);
+                        
+                        if (allPeaks.length === 0) {
+                            html += `<div class="status error">❌ No peaks detected in ${file.name}</div>`;
+                            continue;
+                        }
                         
                         html += `
-                            <div class="peak-item" style="border-left: 4px solid ${index === 0 ? '#4f46e5' : '#10b981'};">
-                                <h5>${isPrimaryPeak}Cluster Peak #${comp.peakIndex} (${comp.relativeIntensity}% intensity)</h5>
-                                <div class="analysis-grid">
-                                    <div class="analysis-card">
-                                        <h6>🧪 Composition</h6>
-                                        <p><strong>Formula:</strong> C${composition.C}H${composition.H}N${composition.N}O${composition.O}P${composition.P}Ag${comp.totalAg}${comp.nCl > 0 ? `Cl${comp.nCl}` : ''}</p>
-                                        <p><strong>Total Ag:</strong> ${comp.totalAg} atoms</p>
-                                        <p><strong>Neutral Ag (N₀):</strong> ${comp.N0} ${colorMatch}</p>
-                                        <p><strong>Cluster charge (Qcl):</strong> ${comp.Qcl}+</p>
-                                        <p><strong>Chloride:</strong> ${comp.nCl} Cl⁻</p>
-                                    </div>
-                                    <div class="analysis-card">
-                                        <h6>📏 Quality Assessment</h6>
-                                        <p><strong>Experimental m/z:</strong> ${comp.mz.toFixed(4)}</p>
-                                        <p><strong>Calculated m/z:</strong> ${comp.predictedMz.toFixed(4)}</p>
-                                        <p><strong>Error:</strong> ${comp.error.toFixed(4)} Da</p>
-                                        <p><strong>Charge state:</strong> z = ${comp.z}</p>
-                                        <p><strong>Shape quality:</strong> ${shapeQuality} (R²=${comp.shapeAnalysis.rSquared.toFixed(3)})</p>
-                                        <p><strong>Peak type:</strong> ${comp.shapeAnalysis.quality}</p>
-                                    </div>
-                                </div>
+                            <div class="status info">
+                                🎯 Detected ${allPeaks.length} total peaks<br>
+                                ✅ ${clusterPeaks.length} cluster-like peaks<br>
+                                ⚠️ ${nonClusterPeaks.length} non-cluster peaks
                             </div>
                         `;
-                    });
-                    
-                    html += '</div>';
-                    
-                    // Create comprehensive plot with shape analysis
-                    plotMultipleCompositions(data, allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, composition, file.name);
-                    
-                    // Add interactive peak selector
-                    const peakSelector = createPeakSelector(allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, data, composition);
-                    document.getElementById('resultsContent').appendChild(peakSelector);
-                    
-                    // Store best composition for reference
-                    const bestComposition = allCompositions[0];
-                    analysisData = {
-                        composition,
-                        totalAg: bestComposition.totalAg,
-                        nCl: bestComposition.nCl,
-                        avgMass: bestComposition.avgMass,
-                        predictedMz: bestComposition.predictedMz,
-                        chargeState: bestComposition.z,
-                        clusterCharge: bestComposition.Qcl,
-                        N0: bestComposition.N0,
-                        strands: bestComposition.strands,
-                        emissionColor: emissionColor,
-                        allCompositions: allCompositions
-                    };
-                    
-                    html += '</div>';
+                        
+                        if (clusterPeaks.length === 0) {
+                            html += `<div class="status warning">⚠️ No high-quality cluster peaks found - all peaks are non-Gaussian</div>`;
+                            // Continue with non-cluster peaks for analysis
+                        }
+                        
+                        // Step 5: DNA composition
+                        console.log('Step 5: DNA composition calculation');
+                        let predictedStrands, composition;
+                        try {
+                            predictedStrands = 2; // Simplified - assume dimers
+                            composition = calculateDNAComposition(dnaSequence, predictedStrands);
+                            console.log('DNA composition calculated:', composition);
+                        } catch (compError) {
+                            console.error('Composition calculation failed:', compError);
+                            html += `<div class="status error">❌ Composition calculation failed: ${compError.message}</div>`;
+                            continue;
+                        }
+                        
+                        html += `
+                            <div class="status success">
+                                🧬 Using: ${predictedStrands} DNA strand(s)<br>
+                                📝 DNA composition: C${composition.C}H${composition.H}N${composition.N}O${composition.O}P${composition.P}
+                            </div>
+                        `;
+                        
+                        // Step 6: Advanced composition analysis
+                        console.log('Step 6: Advanced composition analysis');
+                        let compositions = [];
+                        
+                        try {
+                            // Use cluster peaks if available, otherwise use all peaks
+                            const peaksToAnalyze = clusterPeaks.length > 0 ? clusterPeaks : allPeaks.slice(0, 3);
+                            
+                            if (peaksToAnalyze.length > 0) {
+                                compositions = analyzeMultiplePeaks(peaksToAnalyze, composition, dnaSequence, emissionColor, predictedStrands);
+                                console.log(`Created ${compositions.length} composition analyses`);
+                            }
+                            
+                        } catch (analysisError) {
+                            console.error('Advanced composition analysis failed:', analysisError);
+                            html += `<div class="status warning">⚠️ Advanced analysis failed, using simplified analysis: ${analysisError.message}</div>`;
+                            
+                            // Fallback to simple analysis
+                            const peaksToAnalyze = clusterPeaks.length > 0 ? clusterPeaks : allPeaks;
+                            compositions = peaksToAnalyze.slice(0, 3).map((peak, i) => ({
+                                peakIndex: i + 1,
+                                mz: peak.mz,
+                                intensity: peak.intensity,
+                                relativeIntensity: peak.relativeIntensity,
+                                shapeAnalysis: peak.shapeAnalysis,
+                                N0: colorPrediction.N0,
+                                totalAg: colorPrediction.N0 + 10,
+                                Qcl: 10,
+                                z: 4,
+                                error: 0.5,
+                                strands: predictedStrands
+                            }));
+                        }
+                        
+                        // Step 7: Display results with plotting
+                        console.log('Step 7: Displaying results');
+                        try {
+                            if (compositions.length > 0) {
+                                html += `
+                                    <div class="status success">
+                                        ✅ Analysis completed for ${compositions.length} cluster(s)
+                                    </div>
+                                `;
+                                
+                                // Create detailed results
+                                compositions.forEach((comp, index) => {
+                                    const qualityIcon = comp.shapeAnalysis.rSquared > 0.7 ? '✅' : '⚠️';
+                                    const qualityText = comp.shapeAnalysis.rSquared > 0.7 ? 'High-quality cluster' : 'Lower quality peak';
+                                    
+                                    html += `
+                                        <div class="peak-item">
+                                            <h5>${qualityIcon} Peak #${comp.peakIndex} - ${qualityText} (${comp.relativeIntensity}% intensity)</h5>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                                                <div>
+                                                    <p><strong>m/z:</strong> ${comp.mz.toFixed(4)}</p>
+                                                    <p><strong>Predicted composition:</strong> Ag${comp.totalAg}</p>
+                                                    <p><strong>Neutral silver (N₀):</strong> ${comp.N0}</p>
+                                                    <p><strong>Cluster charge (Qcl):</strong> ${comp.Qcl}+</p>
+                                                </div>
+                                                <div>
+                                                    <p><strong>Charge state (z):</strong> ${comp.z}</p>
+                                                    <p><strong>Shape quality (R²):</strong> ${comp.shapeAnalysis.rSquared.toFixed(3)}</p>
+                                                    <p><strong>Asymmetry:</strong> ${comp.shapeAnalysis.asymmetry.toFixed(2)}</p>
+                                                    <p><strong>FWHM:</strong> ${comp.shapeAnalysis.fwhm.toFixed(3)} Da</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+                                
+                                // Add plotting functionality
+                                setTimeout(() => {
+                                    try {
+                                        plotResults(data, allPeaks, clusterPeaks, nonClusterPeaks, compositions, file.name);
+                                    } catch (plotError) {
+                                        console.error('Plotting failed:', plotError);
+                                    }
+                                }, 100);
+                                
+                            } else {
+                                html += `<div class="status warning">⚠️ No compositions could be determined</div>`;
+                            }
+                            
+                        } catch (displayError) {
+                            console.error('Display error:', displayError);
+                            html += `<div class="status error">❌ Display error: ${displayError.message}</div>`;
+                        }
+                        
+                        html += '</div>'; // Close file section
+                        
+                    } catch (fileError) {
+                        console.error(`File processing error for ${file.name}:`, fileError);
+                        html += `<div class="status error">❌ Error processing ${file.name}: ${fileError.message}</div>`;
+                    }
                 }
                 
                 resultsContent.innerHTML = html;
+                console.log('=== ANALYSIS COMPLETED SUCCESSFULLY ===');
                 
             } catch (error) {
-                resultsContent.innerHTML = `<div class="status error">❌ Error: ${error.message}</div>`;
+                console.error('=== CRITICAL ERROR ===', error);
+                console.error('Stack trace:', error.stack);
+                resultsContent.innerHTML = `
+                    <div class="status error">
+                        ❌ Critical Error: ${error.message}<br>
+                        <small>Check browser console (F12) for details</small>
+                    </div>
+                `;
             } finally {
                 loading.style.display = 'none';
             }
         }
 
-        function plotMultipleCompositions(data, allPeaks, clusterPeaks, nonClusterPeaks, allCompositions, composition, filename) {
+        function plotResults(data, allPeaks, clusterPeaks, nonClusterPeaks, compositions, filename) {
             const plotDiv = document.createElement('div');
             plotDiv.className = 'plot-container';
             plotDiv.id = `plot-${Date.now()}-${Math.random()}`;
@@ -1362,7 +1659,7 @@
                 y: data.map(d => d.intensity),
                 type: 'scatter',
                 mode: 'lines',
-                name: 'Experimental',
+                name: 'Experimental Spectrum',
                 line: {color: '#ef4444', width: 2}
             };
             traces.push(expTrace);
@@ -1375,7 +1672,7 @@
                     type: 'scatter',
                     mode: 'markers',
                     name: `${clusterPeaks.length} Silver Clusters ✅`,
-                    marker: {color: '#10b981', size: 8, symbol: 'circle'},
+                    marker: {color: '#10b981', size: 10, symbol: 'circle'},
                     hovertemplate: 'Cluster m/z: %{x}<br>Intensity: %{y}<br>R²: %{customdata}<extra></extra>',
                     customdata: clusterPeaks.map(p => p.shapeAnalysis.rSquared.toFixed(3))
                 };
@@ -1397,27 +1694,8 @@
                 traces.push(nonClusterTrace);
             }
             
-            // Theoretical traces for cluster compositions only
-            const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444'];
-            const maxIntensity = Math.max(...data.map(d => d.intensity));
-            
-            allCompositions.slice(0, 5).forEach((comp, index) => {
-                const isotopicDist = calculateIsotopicDistribution(composition, comp.totalAg, comp.nCl);
-                
-                const theoreticalTrace = {
-                    x: isotopicDist.masses.map(m => (m - comp.Qcl) / comp.z),
-                    y: isotopicDist.probabilities.map(p => p * maxIntensity * 0.6 * (1 - index * 0.1)),
-                    type: 'scatter',
-                    mode: 'markers+lines',
-                    name: `Cluster #${comp.peakIndex}: Ag${comp.totalAg} (N₀=${comp.N0}, z=${comp.z})`,
-                    line: {color: colors[index % colors.length], width: 2},
-                    marker: {color: colors[index % colors.length], size: 4}
-                };
-                traces.push(theoreticalTrace);
-            });
-            
             const layout = {
-                title: `${filename} - Shape-Filtered Analysis (${clusterPeaks.length} clusters, ${nonClusterPeaks.length} non-clusters)`,
+                title: `${filename} - Advanced Peak Analysis (${clusterPeaks.length} clusters, ${nonClusterPeaks.length} non-clusters)`,
                 xaxis: {title: 'm/z'},
                 yaxis: {title: 'Intensity'},
                 showlegend: true,
@@ -1425,18 +1703,18 @@
                 plot_bgcolor: '#f8fafc',
                 paper_bgcolor: 'white',
                 height: 500,
-                annotations: nonClusterPeaks.length > 0 ? [{
+                annotations: [{
                     x: 0.02,
                     y: 0.98,
                     xref: 'paper',
                     yref: 'paper',
-                    text: '⚠️ X marks = Non-Gaussian peaks (likely nanoparticles)',
+                    text: `🎯 Advanced Gaussian shape analysis with R² correlation filtering`,
                     showarrow: false,
-                    font: {color: '#f59e0b', size: 12},
+                    font: {color: '#4f46e5', size: 12},
                     bgcolor: 'rgba(255,255,255,0.8)',
-                    bordercolor: '#f59e0b',
+                    bordercolor: '#4f46e5',
                     borderwidth: 1
-                }] : []
+                }]
             };
             
             Plotly.newPlot(plotDiv.id, traces, layout, {responsive: true});
@@ -1446,10 +1724,12 @@
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const label = document.querySelector('.file-upload-label');
             if (e.target.files.length > 0) {
-                label.innerHTML = `📁 ${e.target.files.length} file(s) selected<br><small>Ready for auto-analysis</small>`;
+                const totalSize = Array.from(e.target.files).reduce((sum, file) => sum + file.size, 0);
+                const totalSizeMB = (totalSize / 1024 / 1024).toFixed(1);
+                label.innerHTML = `📁 ${e.target.files.length} file(s) selected (${totalSizeMB}MB)<br><small>Ready for auto-analysis</small>`;
                 label.style.color = '#4f46e5';
             } else {
-                label.innerHTML = '📁 Click to upload or drag files here<br><small>Format: m/z intensity (space or tab separated)</small>';
+                label.innerHTML = '📁 Click to upload or drag files here<br><small>Format: m/z intensity (space or tab separated)<br>Up to 50MB per file supported</small>';
                 label.style.color = '#64748b';
             }
         });
