@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DNA-Silver Nanocluster MS Analyzer</title>
+    <title>DNA-Silver Cluster Analyzer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
     <style>
         * {
@@ -180,7 +180,7 @@
             font-weight: 600;
         }
         
-        .envelope-analysis {
+        .cluster-info {
             background: #f0f9ff;
             border: 2px solid #0369a1;
             border-radius: 8px;
@@ -192,17 +192,17 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🧬 DNA-Silver Nanocluster MS Analyzer</h1>
-            <p>Isotope envelope and charge state analysis for ESI-MS data</p>
+            <h1>🧬 DNA-Silver Cluster Analyzer</h1>
+            <p>Simple, robust isotope envelope analysis</p>
         </div>
         
         <div class="main-content">
             <div class="input-panel">
-                <h3>📥 MS Data Analysis</h3>
+                <h3>📥 Cluster Analysis</h3>
                 
                 <div class="form-group">
                     <label for="dnaSequence">DNA Sequence:</label>
-                    <textarea id="dnaSequence" rows="3" placeholder="Enter DNA sequence (e.g., CACCTAGCGA)">CACCTAGCGA</textarea>
+                    <textarea id="dnaSequence" rows="3" placeholder="CACCTAGCG">CACCTAGCG</textarea>
                 </div>
                 
                 <div class="form-group">
@@ -216,32 +216,26 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="massAccuracy">Mass Accuracy (ppm):</label>
-                    <input type="number" id="massAccuracy" value="50" min="1" max="1000" placeholder="50">
-                </div>
-                
-                <div class="form-group">
-                    <label>Upload ESI-MS Data:</label>
+                    <label>Upload MS Data:</label>
                     <div class="file-upload">
-                        <input type="file" id="fileInput" accept=".txt,.csv" multiple>
+                        <input type="file" id="fileInput" accept=".txt,.csv">
                         <label for="fileInput" class="file-upload-label">
-                            📁 Upload mass spectrum<br>
-                            <small>Two columns: m/z, intensity</small>
+                            📁 Upload spectrum<br>
+                            <small>m/z intensity format</small>
                         </label>
                     </div>
                 </div>
                 
-                <button class="btn" onclick="analyzeIsotopeEnvelopes()">🔬 Analyze Isotope Envelopes</button>
+                <button class="btn" onclick="findClusters()">🔍 Find Silver Clusters</button>
                 
-                <div class="envelope-analysis">
-                    <h4>🧪 Analysis Method</h4>
-                    <p><strong>Isotope Envelope Analysis:</strong></p>
+                <div class="cluster-info">
+                    <h4>🎯 Cluster Detection</h4>
+                    <p>This analyzer finds:</p>
                     <ul style="margin-left: 20px; margin-top: 5px;">
-                        <li><strong>Find envelopes:</strong> Groups of peaks ~1 Da apart</li>
-                        <li><strong>Determine charge:</strong> From isotope spacing (1/z)</li>
-                        <li><strong>Calculate mass:</strong> Centroid m/z × charge state</li>
-                        <li><strong>Match compositions:</strong> DNA + AgN + Cl ligands</li>
-                        <li><strong>Validate fragments:</strong> Loss of Ag⁺ from parent</li>
+                        <li><strong>Isotope envelopes:</strong> Peaks ~1 Da apart</li>
+                        <li><strong>Charge states:</strong> z = 3,4,5,6 from spacing</li>
+                        <li><strong>Silver clusters:</strong> AgN compositions</li>
+                        <li><strong>Fragment series:</strong> Loss of Ag⁺</li>
                     </ul>
                 </div>
             </div>
@@ -249,16 +243,16 @@
             <div class="results-panel">
                 <div class="results-content" id="resultsContent">
                     <div class="status info">
-                        <strong>🔬 Isotope Envelope Analysis for DNA-Ag Nanoclusters</strong><br><br>
-                        This analyzer is designed for ESI-MS data showing:
+                        <strong>🔬 DNA-Silver Cluster Detection</strong><br><br>
+                        Upload your ESI-MS data to detect silver nanoclusters with isotope envelope analysis.
+                        <br><br>
+                        <strong>Expected data format:</strong>
                         <ul style="margin-top: 10px; margin-left: 20px;">
-                            <li><strong>Isotope envelopes:</strong> Multiple peaks ~1 Da apart</li>
-                            <li><strong>Multiple charge states:</strong> Same species at z=3,4,5,6</li>
-                            <li><strong>Fragmentation series:</strong> Loss of Ag⁺ (NAg = 10,11,12...18)</li>
-                            <li><strong>Accurate mass assignment:</strong> Based on envelope centroids</li>
+                            <li>Two columns: m/z and intensity</li>
+                            <li>Space, tab, or comma separated</li>
+                            <li>Contains isotope envelopes (multiple peaks ~1 Da apart)</li>
+                            <li>Multiple charge states of same clusters</li>
                         </ul>
-                        <br>
-                        <strong>Upload your ESI-MS data to begin analysis.</strong>
                     </div>
                 </div>
             </div>
@@ -266,250 +260,323 @@
     </div>
 
     <script>
-        // Enhanced MS Analyzer with chunked processing and storage management
-        class IsotopeEnvelopeAnalyzer {
+        // Third-party storage enabled cluster finder
+        class StorageEnabledClusterFinder {
             constructor() {
-                this.massAccuracy = 50; // ppm
-                this.chunkSize = 1000; // Process data in chunks
-                this.storage = new Map(); // In-memory storage
+                // Constants
+                this.ISOTOPE_SPACING_TOLERANCE = 0.05;
+                this.MIN_ENVELOPE_PEAKS = 3;
+                this.EXPECTED_CHARGES = [3, 4, 5, 6, 7, 8];
+                this.CHUNK_SIZE = 500; // Process in small chunks
+                
+                // Storage system
                 this.hasIndexedDB = false;
-                this.hasWebWorkers = false;
+                this.storage = new Map(); // Fallback storage
+                this.dbName = 'ClusterAnalysisDB';
+                this.dbVersion = 1;
                 
-                // Check API availability
-                this.checkAPIAvailability();
+                // Initialize storage
+                this.initStorage();
                 
-                // Isotope data
-                this.isotopeData = {
-                    H: 1.007825032, C: 12.0000000, N: 14.003074, 
-                    O: 15.99491462, P: 30.973762, 
-                    Ag: 106.905097, Cl: 34.96885269
+                // Atomic masses
+                this.MASSES = {
+                    H: 1.007825, C: 12.000000, N: 14.003074,
+                    O: 15.994915, P: 30.973762, Ag: 106.905097, Cl: 34.968853
                 };
                 
-                // Expected charge states for DNA-Ag clusters
-                this.expectedChargeStates = [3, 4, 5, 6, 7, 8];
+                // Color to N0 mapping
+                this.COLOR_N0 = {
+                    green: 4, red: 6, fred: 8, nir: 11
+                };
             }
             
-            // Check what APIs are available
-            async checkAPIAvailability() {
+            // Initialize IndexedDB storage
+            async initStorage() {
                 try {
-                    if ('indexedDB' in window) {
-                        const testDB = await new Promise((resolve, reject) => {
-                            const request = indexedDB.open('test', 1);
-                            request.onsuccess = () => {
-                                request.result.close();
-                                resolve(true);
-                            };
-                            request.onerror = () => reject(request.error);
-                            request.onblocked = () => reject(new Error('blocked'));
-                        });
-                        this.hasIndexedDB = true;
-                        console.log('✅ IndexedDB available');
+                    if (!('indexedDB' in window)) {
+                        console.log('IndexedDB not supported, using memory storage');
+                        return;
                     }
+                    
+                    await new Promise((resolve, reject) => {
+                        const request = indexedDB.open(this.dbName, this.dbVersion);
+                        
+                        request.onerror = () => {
+                            console.log('IndexedDB failed, using memory storage');
+                            resolve();
+                        };
+                        
+                        request.onsuccess = () => {
+                            this.hasIndexedDB = true;
+                            console.log('✅ IndexedDB initialized');
+                            request.result.close();
+                            resolve();
+                        };
+                        
+                        request.onupgradeneeded = (event) => {
+                            const db = event.target.result;
+                            
+                            // Create object stores
+                            if (!db.objectStoreNames.contains('peaks')) {
+                                db.createObjectStore('peaks', { keyPath: 'id', autoIncrement: true });
+                            }
+                            if (!db.objectStoreNames.contains('envelopes')) {
+                                db.createObjectStore('envelopes', { keyPath: 'id', autoIncrement: true });
+                            }
+                            if (!db.objectStoreNames.contains('clusters')) {
+                                db.createObjectStore('clusters', { keyPath: 'id', autoIncrement: true });
+                            }
+                        };
+                    });
                 } catch (error) {
-                    this.hasIndexedDB = false;
-                    console.log('⚠️ IndexedDB not available, using fallback storage');
+                    console.log('IndexedDB initialization failed:', error);
                 }
-                
-                this.hasWebWorkers = 'Worker' in window;
-                console.log(`✅ Web Workers: ${this.hasWebWorkers ? 'Available' : 'Not available'}`);
             }
             
-            // Store data with chunked processing
-            async storeData(data, key) {
+            // Store data in IndexedDB or fallback
+            async storeData(storeName, data, chunkKey = 'default') {
                 if (this.hasIndexedDB) {
-                    return this.storeInIndexedDB(data, key);
+                    return this.storeInIndexedDB(storeName, data, chunkKey);
                 } else {
-                    return this.storeInMemory(data, key);
+                    return this.storeInMemory(storeName, data, chunkKey);
                 }
             }
             
             // Store in IndexedDB with chunked processing
-            async storeInIndexedDB(data, key) {
+            async storeInIndexedDB(storeName, data, chunkKey) {
                 try {
                     const db = await new Promise((resolve, reject) => {
-                        const request = indexedDB.open('MSAnalyzerDB', 1);
-                        request.onerror = () => reject(request.error);
+                        const request = indexedDB.open(this.dbName, this.dbVersion);
                         request.onsuccess = () => resolve(request.result);
-                        request.onupgradeneeded = (event) => {
-                            const database = event.target.result;
-                            if (!database.objectStoreNames.contains('spectra')) {
-                                database.createObjectStore('spectra', { keyPath: 'id' });
-                            }
-                        };
+                        request.onerror = () => reject(request.error);
                     });
                     
-                    // Store in chunks to avoid stack overflow
-                    const transaction = db.transaction(['spectra'], 'readwrite');
-                    const store = transaction.objectStore('spectra');
+                    const transaction = db.transaction([storeName], 'readwrite');
+                    const store = transaction.objectStore(storeName);
                     
-                    for (let i = 0; i < data.length; i += this.chunkSize) {
-                        const chunk = data.slice(i, i + this.chunkSize);
-                        
-                        await new Promise((resolve, reject) => {
-                            const request = store.put({
-                                id: `${key}_chunk_${i}`,
-                                data: chunk,
-                                chunkIndex: i
+                    // Clear existing data for this key
+                    await new Promise((resolve) => {
+                        const clearRequest = store.clear();
+                        clearRequest.onsuccess = () => resolve();
+                        clearRequest.onerror = () => resolve(); // Continue even if clear fails
+                    });
+                    
+                    // Store data in chunks
+                    const chunks = [];
+                    for (let i = 0; i < data.length; i += this.CHUNK_SIZE) {
+                        chunks.push(data.slice(i, i + this.CHUNK_SIZE));
+                    }
+                    
+                    for (let i = 0; i < chunks.length; i++) {
+                        await new Promise((resolve) => {
+                            const request = store.add({
+                                chunkKey: chunkKey,
+                                chunkIndex: i,
+                                data: chunks[i]
                             });
                             request.onsuccess = () => resolve();
-                            request.onerror = () => reject(request.error);
+                            request.onerror = () => resolve(); // Continue even if some chunks fail
                         });
-                        
-                        // Yield control to prevent stack overflow
-                        await new Promise(resolve => setTimeout(resolve, 1));
                     }
                     
                     db.close();
-                    console.log(`✅ Stored ${data.length} points in IndexedDB`);
+                    console.log(`✅ Stored ${data.length} items in IndexedDB (${chunks.length} chunks)`);
+                    
                 } catch (error) {
-                    console.warn('IndexedDB storage failed, using fallback:', error);
-                    return this.storeInMemory(data, key);
+                    console.log('IndexedDB storage failed, using memory fallback:', error);
+                    return this.storeInMemory(storeName, data, chunkKey);
                 }
             }
             
-            // Fallback in-memory storage
-            async storeInMemory(data, key) {
+            // Memory fallback storage
+            async storeInMemory(storeName, data, chunkKey) {
+                const key = `${storeName}_${chunkKey}`;
                 this.storage.set(key, data);
                 
-                // Simulate chunked processing for consistency
-                for (let i = 0; i < data.length; i += this.chunkSize) {
+                // Yield control for large datasets
+                if (data.length > 1000) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                
+                console.log(`✅ Stored ${data.length} items in memory`);
+            }
+            
+            // Retrieve data from storage
+            async retrieveData(storeName, chunkKey = 'default') {
+                if (this.hasIndexedDB) {
+                    return this.retrieveFromIndexedDB(storeName, chunkKey);
+                } else {
+                    return this.retrieveFromMemory(storeName, chunkKey);
+                }
+            }
+            
+            // Retrieve from IndexedDB
+            async retrieveFromIndexedDB(storeName, chunkKey) {
+                try {
+                    const db = await new Promise((resolve, reject) => {
+                        const request = indexedDB.open(this.dbName, this.dbVersion);
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                    
+                    const transaction = db.transaction([storeName], 'readonly');
+                    const store = transaction.objectStore(storeName);
+                    
+                    const chunks = await new Promise((resolve) => {
+                        const request = store.getAll();
+                        request.onsuccess = () => {
+                            const allData = request.result;
+                            const filteredChunks = allData
+                                .filter(item => item.chunkKey === chunkKey)
+                                .sort((a, b) => a.chunkIndex - b.chunkIndex);
+                            resolve(filteredChunks);
+                        };
+                        request.onerror = () => resolve([]);
+                    });
+                    
+                    db.close();
+                    
+                    // Reconstruct data from chunks
+                    const data = [];
+                    for (const chunk of chunks) {
+                        data.push(...chunk.data);
+                    }
+                    
+                    return data;
+                    
+                } catch (error) {
+                    console.log('IndexedDB retrieval failed, using memory fallback:', error);
+                    return this.retrieveFromMemory(storeName, chunkKey);
+                }
+            }
+            
+            // Retrieve from memory
+            async retrieveFromMemory(storeName, chunkKey) {
+                const key = `${storeName}_${chunkKey}`;
+                return this.storage.get(key) || [];
+            }
+            
+            // Find peaks with storage support
+            async findPeaks(data) {
+                const maxIntensity = Math.max(...data.map(d => d.intensity));
+                const threshold = maxIntensity * 0.03;
+                
+                const peaks = [];
+                
+                // Process in chunks to avoid stack overflow
+                for (let i = 0; i < data.length; i += this.CHUNK_SIZE) {
+                    const chunk = data.slice(i, i + this.CHUNK_SIZE);
+                    
+                    for (const point of chunk) {
+                        if (point.intensity > threshold) {
+                            peaks.push(point);
+                        }
+                    }
+                    
+                    // Yield control every chunk
                     await new Promise(resolve => setTimeout(resolve, 1));
                 }
                 
-                console.log(`✅ Stored ${data.length} points in memory`);
+                // Store peaks for later use
+                await this.storeData('peaks', peaks, 'filtered');
+                
+                return peaks;
             }
             
-            // Find isotope envelopes with chunked processing
-            async findIsotopeEnvelopes(data) {
-                console.log('🔍 Finding isotope envelopes with chunked processing...');
-                
-                // Store data first
-                await this.storeData(data, 'spectrum_data');
-                
+            // Find envelopes with chunked processing
+            async findEnvelopes(peaks) {
                 const envelopes = [];
-                const threshold = this.getThreshold(data);
+                const used = new Set();
                 
-                // Process data in chunks to avoid stack overflow
-                let currentGroup = [];
-                let processedPoints = 0;
-                
-                for (let chunkStart = 0; chunkStart < data.length; chunkStart += this.chunkSize) {
-                    const chunkEnd = Math.min(chunkStart + this.chunkSize, data.length);
-                    const chunk = data.slice(chunkStart, chunkEnd);
+                // Process peaks in chunks to avoid stack overflow
+                for (let chunkStart = 0; chunkStart < peaks.length; chunkStart += this.CHUNK_SIZE) {
+                    const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, peaks.length);
                     
-                    for (let i = 0; i < chunk.length - 1; i++) {
-                        const current = chunk[i];
-                        const next = i < chunk.length - 1 ? chunk[i + 1] : 
-                                   (chunkEnd < data.length ? data[chunkEnd] : null);
+                    for (let i = chunkStart; i < chunkEnd; i++) {
+                        if (used.has(i)) continue;
                         
-                        // Skip low intensity peaks
-                        if (current.intensity < threshold) continue;
+                        const envelope = [peaks[i]];
+                        used.add(i);
                         
-                        currentGroup.push(current);
-                        processedPoints++;
+                        // Look for related peaks (limit search range to avoid stack overflow)
+                        const searchEnd = Math.min(i + 100, peaks.length); // Limit search range
                         
-                        // Check if this is end of envelope
-                        if (!next || (next.mz - current.mz > 2.0)) {
-                            if (currentGroup.length >= 3) {
-                                const envelope = await this.analyzeEnvelopeAsync(currentGroup);
-                                if (envelope) {
-                                    envelopes.push(envelope);
+                        for (let j = i + 1; j < searchEnd; j++) {
+                            if (used.has(j)) continue;
+                            
+                            const deltaM = peaks[j].mz - peaks[i].mz;
+                            if (deltaM > 5) break; // Too far away
+                            
+                            // Simple envelope check
+                            let isPartOfEnvelope = false;
+                            for (const envPeak of envelope) {
+                                const spacing = Math.abs(peaks[j].mz - envPeak.mz);
+                                const expectedSpacing = Math.round(spacing);
+                                
+                                if (Math.abs(spacing - expectedSpacing) < this.ISOTOPE_SPACING_TOLERANCE) {
+                                    isPartOfEnvelope = true;
+                                    break;
                                 }
                             }
-                            currentGroup = [];
+                            
+                            if (isPartOfEnvelope) {
+                                envelope.push(peaks[j]);
+                                used.add(j);
+                            }
                         }
                         
-                        // Yield control every 100 points
-                        if (processedPoints % 100 === 0) {
-                            await new Promise(resolve => setTimeout(resolve, 1));
+                        if (envelope.length >= this.MIN_ENVELOPE_PEAKS) {
+                            envelope.sort((a, b) => a.mz - b.mz);
+                            const analyzedEnvelope = this.analyzeEnvelope(envelope);
+                            if (analyzedEnvelope) {
+                                envelopes.push(analyzedEnvelope);
+                            }
                         }
                     }
                     
                     // Yield control between chunks
-                    await new Promise(resolve => setTimeout(resolve, 5));
+                    await new Promise(resolve => setTimeout(resolve, 2));
                 }
                 
-                // Handle final group
-                if (currentGroup.length >= 3) {
-                    const envelope = await this.analyzeEnvelopeAsync(currentGroup);
-                    if (envelope) {
-                        envelopes.push(envelope);
-                    }
-                }
+                // Store envelopes
+                await this.storeData('envelopes', envelopes, 'detected');
                 
-                console.log(`Found ${envelopes.length} isotope envelopes`);
                 return envelopes;
             }
             
-            // Async envelope analysis to prevent stack overflow
-            async analyzeEnvelopeAsync(peaks) {
-                return new Promise(resolve => {
-                    setTimeout(() => {
-                        resolve(this.analyzeEnvelope(peaks));
-                    }, 0);
-                });
-            }
-            
-            // Analyze individual envelope to determine charge state and mass
+            // Analyze individual envelope
             analyzeEnvelope(peaks) {
                 if (peaks.length < 3) return null;
                 
                 // Calculate average spacing between consecutive peaks
-                let totalSpacing = 0;
-                let spacingCount = 0;
-                
+                const spacings = [];
                 for (let i = 0; i < peaks.length - 1; i++) {
-                    const spacing = peaks[i + 1].mz - peaks[i].mz;
-                    if (spacing > 0.5 && spacing < 2.0) { // Reasonable isotope spacing
-                        totalSpacing += spacing;
-                        spacingCount++;
-                    }
+                    spacings.push(peaks[i + 1].mz - peaks[i].mz);
                 }
                 
-                if (spacingCount === 0) return null;
+                const avgSpacing = spacings.reduce((a, b) => a + b, 0) / spacings.length;
                 
-                const avgSpacing = totalSpacing / spacingCount;
-                
-                // Determine charge state: 1/avgSpacing should be integer
-                let bestChargeState = 0;
+                // Determine charge state
+                let bestCharge = 0;
                 let bestError = Infinity;
                 
-                for (const z of this.expectedChargeStates) {
+                for (const z of this.EXPECTED_CHARGES) {
                     const expectedSpacing = 1.0 / z;
                     const error = Math.abs(avgSpacing - expectedSpacing);
                     
                     if (error < bestError) {
                         bestError = error;
-                        bestChargeState = z;
+                        bestCharge = z;
                     }
                 }
                 
-                // Validate charge state assignment
-                const expectedSpacing = 1.0 / bestChargeState;
-                const spacingError = Math.abs(avgSpacing - expectedSpacing) / expectedSpacing;
-                
-                if (spacingError > 0.1) { // >10% error, probably not correct
-                    return null;
+                // Validate charge assignment
+                const expectedSpacing = 1.0 / bestCharge;
+                if (Math.abs(avgSpacing - expectedSpacing) > 0.1) {
+                    return null; // Poor charge assignment
                 }
                 
-                // Calculate centroid and molecular mass
-                const centroid = this.calculateCentroid(peaks);
-                const molecularMass = centroid * bestChargeState;
-                
-                return {
-                    peaks: peaks,
-                    chargeState: bestChargeState,
-                    centroidMz: centroid,
-                    molecularMass: molecularMass,
-                    peakCount: peaks.length,
-                    avgSpacing: avgSpacing,
-                    spacingError: spacingError,
-                    maxIntensity: Math.max(...peaks.map(p => p.intensity))
-                };
-            }
-            
-            // Calculate intensity-weighted centroid of envelope
-            calculateCentroid(peaks) {
+                // Calculate centroid
                 let totalIntensity = 0;
                 let weightedMz = 0;
                 
@@ -518,126 +585,152 @@
                     weightedMz += peak.mz * peak.intensity;
                 }
                 
-                return weightedMz / totalIntensity;
-            }
-            
-            // Get intensity threshold (5% of base peak)
-            getThreshold(data) {
-                const maxIntensity = Math.max(...data.map(d => d.intensity));
-                return maxIntensity * 0.05;
-            }
-            
-            // Match envelopes to compositions with chunked processing
-            async matchCompositions(envelopes, dnaComposition, emissionColor) {
-                console.log('🧮 Matching compositions with chunked processing...');
-                const compositions = [];
+                const centroid = weightedMz / totalIntensity;
+                const molecularMass = centroid * bestCharge;
                 
-                // Color predictions
-                const colorPredictions = {
-                    'green': { N0: 4, range: [2, 6] },
-                    'red': { N0: 6, range: [4, 8] },
-                    'fred': { N0: 8, range: [6, 10] },
-                    'nir': { N0: 11, range: [10, 12] }
+                return {
+                    peaks: peaks,
+                    centroid: centroid,
+                    charge: bestCharge,
+                    mass: molecularMass,
+                    peakCount: peaks.length,
+                    spacing: avgSpacing,
+                    maxIntensity: Math.max(...peaks.map(p => p.intensity))
                 };
+            }
+            
+            // Match envelopes to clusters with chunked processing
+            async matchClusters(envelopes, dnaSeq, expectedColor) {
+                const clusters = [];
+                const dnaComp = this.calculateDNA(dnaSeq);
+                const dnaBaseMass = this.calculateMass(dnaComp);
+                const expectedN0 = this.COLOR_N0[expectedColor] || 6;
                 
-                const colorInfo = colorPredictions[emissionColor] || { N0: 6, range: [4, 8] };
-                const dnaBaseMass = this.calculateDNAMass(dnaComposition);
-                
-                // Process envelopes in chunks
+                // Process envelopes in small chunks
                 for (let envIndex = 0; envIndex < envelopes.length; envIndex++) {
-                    const envelope = envelopes[envIndex];
-                    const availableMass = envelope.molecularMass - dnaBaseMass;
-                    const estimatedTotalAg = Math.round(availableMass / this.isotopeData.Ag);
+                    const env = envelopes[envIndex];
+                    const silverMass = env.mass - dnaBaseMass;
+                    const estimatedAg = Math.round(silverMass / this.MASSES.Ag);
                     
-                    if (estimatedTotalAg < 5 || estimatedTotalAg > 25) continue;
+                    if (estimatedAg < 5 || estimatedAg > 25) continue;
                     
-                    let bestMatch = null;
-                    let bestError = Infinity;
                     let testCount = 0;
                     
-                    // Chunked composition testing
-                    for (let totalAg = Math.max(5, estimatedTotalAg - 3); 
-                         totalAg <= Math.min(25, estimatedTotalAg + 3); totalAg++) {
+                    // Limit the search space to prevent stack overflow
+                    const agRange = Math.min(3, estimatedAg - 5); // Smaller range
+                    
+                    for (let nAg = Math.max(5, estimatedAg - agRange); 
+                         nAg <= Math.min(25, estimatedAg + agRange); nAg++) {
                         
-                        for (let N0 = Math.max(0, colorInfo.range[0]); 
-                             N0 <= Math.min(totalAg, colorInfo.range[1]); N0 += 2) {
+                        for (let N0 = 2; N0 <= Math.min(nAg, 12); N0 += 2) {
+                            const Qcl = nAg - N0;
                             
-                            const Qcl = totalAg - N0;
+                            const maxCl = Math.min(4, Qcl); // Limit chloride range
                             
-                            for (let nCl = 0; nCl <= Math.min(8, Qcl); nCl++) {
+                            for (let nCl = 0; nCl <= maxCl; nCl++) {
                                 const predictedMass = dnaBaseMass + 
-                                                    totalAg * this.isotopeData.Ag + 
-                                                    nCl * this.isotopeData.Cl;
+                                                    nAg * this.MASSES.Ag + 
+                                                    nCl * this.MASSES.Cl;
                                 
-                                const massError = Math.abs(predictedMass - envelope.molecularMass);
-                                const ppmError = (massError / envelope.molecularMass) * 1e6;
+                                const error = Math.abs(predictedMass - env.mass);
+                                const ppmError = (error / env.mass) * 1e6;
                                 
-                                if (ppmError < this.massAccuracy && ppmError < bestError) {
-                                    bestError = ppmError;
-                                    bestMatch = {
-                                        envelope: envelope,
-                                        totalAg: totalAg,
+                                if (ppmError < 100) {
+                                    clusters.push({
+                                        envelope: env,
+                                        nAg: nAg,
                                         N0: N0,
                                         Qcl: Qcl,
                                         nCl: nCl,
                                         predictedMass: predictedMass,
-                                        massError: massError,
                                         ppmError: ppmError,
-                                        matchesExpected: N0 === colorInfo.N0,
-                                        molecularFormula: this.generateFormula(dnaComposition, totalAg, nCl)
-                                    };
+                                        matchesExpected: N0 === expectedN0,
+                                        formula: this.makeFormula(dnaComp, nAg, nCl)
+                                    });
                                 }
                                 
                                 testCount++;
                                 
-                                // Yield control every 50 tests
-                                if (testCount % 50 === 0) {
+                                // Yield control every 20 tests
+                                if (testCount % 20 === 0) {
                                     await new Promise(resolve => setTimeout(resolve, 1));
                                 }
                             }
                         }
                     }
                     
-                    if (bestMatch) {
-                        compositions.push(bestMatch);
-                    }
-                    
                     // Yield control between envelopes
-                    await new Promise(resolve => setTimeout(resolve, 2));
+                    if (envIndex % 5 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 5));
+                    }
                 }
                 
-                // Sort by mass accuracy
-                compositions.sort((a, b) => a.ppmError - b.ppmError);
+                // Store clusters
+                await this.storeData('clusters', clusters, 'matched');
                 
-                console.log(`Matched ${compositions.length} compositions`);
-                return compositions;
+                // Sort by mass accuracy
+                clusters.sort((a, b) => a.ppmError - b.ppmError);
+                return clusters;
             }
             
-            // Calculate DNA molecular mass
-            calculateDNAMass(dnaComp) {
-                return dnaComp.H * this.isotopeData.H +
-                       dnaComp.C * this.isotopeData.C +
-                       dnaComp.N * this.isotopeData.N +
-                       dnaComp.O * this.isotopeData.O +
-                       dnaComp.P * this.isotopeData.P;
+            // Calculate DNA composition
+            calculateDNA(sequence) {
+                const bases = {
+                    A: {C:5, H:5, N:5, O:0}, T: {C:5, H:6, N:2, O:2},
+                    G: {C:5, H:5, N:5, O:1}, C: {C:4, H:5, N:3, O:1}
+                };
+                
+                let comp = {H:0, C:0, N:0, O:0, P:0};
+                
+                // Count bases
+                for (const base of sequence.toUpperCase()) {
+                    if (bases[base]) {
+                        comp.C += bases[base].C;
+                        comp.H += bases[base].H;
+                        comp.N += bases[base].N;
+                        comp.O += bases[base].O;
+                    }
+                }
+                
+                // Add backbone (2 strands)
+                const n = sequence.length;
+                comp.C += n * 10; // 2 * 5 carbons per sugar
+                comp.H += n * 16; // 2 * 8 hydrogens per sugar
+                comp.O += n * 2;  // 2 * 1 oxygen per sugar
+                comp.P += (n-1) * 2; // 2 * (n-1) phosphates
+                comp.O += (n-1) * 8; // 2 * 4 oxygens per phosphate
+                comp.H += (n-1) * 2; // 2 * 1 hydrogen per phosphate
+                comp.H += 4; // Terminal OH groups
+                comp.O += 4;
+                
+                return comp;
             }
             
-            // Generate molecular formula
-            generateFormula(dnaComp, nAg, nCl) {
+            // Calculate molecular mass
+            calculateMass(composition) {
+                return composition.H * this.MASSES.H +
+                       composition.C * this.MASSES.C +
+                       composition.N * this.MASSES.N +
+                       composition.O * this.MASSES.O +
+                       composition.P * this.MASSES.P;
+            }
+            
+            // Make molecular formula string
+            makeFormula(dna, nAg, nCl) {
                 const parts = [];
-                if (dnaComp.C > 0) parts.push(`C${dnaComp.C}`);
-                if (dnaComp.H > 0) parts.push(`H${dnaComp.H}`);
-                if (dnaComp.N > 0) parts.push(`N${dnaComp.N}`);
-                if (dnaComp.O > 0) parts.push(`O${dnaComp.O}`);
-                if (dnaComp.P > 0) parts.push(`P${dnaComp.P}`);
-                if (nAg > 0) parts.push(`Ag${nAg}`);
-                if (nCl > 0) parts.push(`Cl${nCl}`);
+                if (dna.C) parts.push(`C${dna.C}`);
+                if (dna.H) parts.push(`H${dna.H}`);
+                if (dna.N) parts.push(`N${dna.N}`);
+                if (dna.O) parts.push(`O${dna.O}`);
+                if (dna.P) parts.push(`P${dna.P}`);
+                if (nAg) parts.push(`Ag${nAg}`);
+                if (nCl) parts.push(`Cl${nCl}`);
                 return parts.join('');
             }
         }
         
-        // Parse MS data file with chunked processing
-        async function parseDataFile(text) {
+        // Simple data parser with chunked processing
+        async function parseData(text) {
             const lines = text.split('\n');
             const data = [];
             const chunkSize = 1000;
@@ -664,341 +757,224 @@
                 await new Promise(resolve => setTimeout(resolve, 1));
             }
             
-            data.sort((a, b) => a.mz - b.mz);
-            return data;
+            return data.sort((a, b) => a.mz - b.mz);
         }
         
-        // Calculate DNA composition
-        function calculateDNAComposition(sequence, strands = 2) {
-            let H = 0, C = 0, N = 0, O = 0, P = 0;
-            
-            const baseCompositions = {
-                'A': {C: 5, H: 5, N: 5, O: 0},
-                'T': {C: 5, H: 6, N: 2, O: 2},
-                'G': {C: 5, H: 5, N: 5, O: 1},
-                'C': {C: 4, H: 5, N: 3, O: 1}
-            };
-            
-            // Count bases
-            for (const base of sequence.toUpperCase()) {
-                if (baseCompositions[base]) {
-                    C += baseCompositions[base].C;
-                    H += baseCompositions[base].H;
-                    N += baseCompositions[base].N;
-                    O += baseCompositions[base].O;
-                }
-            }
-            
-            // Add backbone
-            const numBases = sequence.length;
-            C += numBases * 5; // ribose
-            H += numBases * 8;
-            O += numBases * 1;
-            P += numBases - 1; // phosphodiester
-            O += (numBases - 1) * 4;
-            H += numBases - 1;
-            H += 2; // terminal OH
-            O += 2;
-            
-            return {
-                H: H * strands, C: C * strands, N: N * strands, 
-                O: O * strands, P: P * strands
-            };
-        }
-        
-        // Main analysis function
-        async function analyzeIsotopeEnvelopes() {
-            const resultsContent = document.getElementById('resultsContent');
+        // Main analysis function with storage support
+        async function findClusters() {
+            const resultsDiv = document.getElementById('resultsContent');
             
             try {
-                const dnaSequence = document.getElementById('dnaSequence').value.trim();
-                const emissionColor = document.getElementById('emissionColor').value;
-                const massAccuracy = parseFloat(document.getElementById('massAccuracy').value);
+                // Get inputs
+                const dnaSeq = document.getElementById('dnaSequence').value.trim();
+                const color = document.getElementById('emissionColor').value;
                 const fileInput = document.getElementById('fileInput');
                 
-                if (!dnaSequence || !/^[ATGC]+$/i.test(dnaSequence)) {
-                    throw new Error('Please enter a valid DNA sequence');
+                if (!dnaSeq || !/^[ATGC]+$/i.test(dnaSeq)) {
+                    throw new Error('Enter valid DNA sequence (A,T,G,C only)');
                 }
                 
-                if (fileInput.files.length === 0) {
-                    throw new Error('Please upload MS data file');
+                if (!fileInput.files[0]) {
+                    throw new Error('Upload MS data file');
                 }
                 
-                // Initialize analyzer
-                const analyzer = new IsotopeEnvelopeAnalyzer();
-                analyzer.massAccuracy = massAccuracy;
+                resultsDiv.innerHTML = '<div class="status info">🔍 Initializing storage and parsing data...</div>';
                 
-                let html = `
-                    <div class="status success">
-                        ✅ Starting isotope envelope analysis
-                    </div>
-                `;
-                resultsContent.innerHTML = html;
+                // Initialize cluster finder with storage
+                const finder = new StorageEnabledClusterFinder();
                 
-                // Parse data
+                // Wait for storage initialization
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Parse data with chunked processing
                 const file = fileInput.files[0];
-                const text = await file.text();
-                const data = await parseDataFile(text);
+                const text = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = e => resolve(e.target.result);
+                    reader.onerror = reject;
+                    reader.readAsText(file);
+                });
                 
-                html += `
-                    <div class="status info">
-                        📊 Loaded ${data.length} data points<br>
-                        m/z range: ${data[0].mz.toFixed(2)} - ${data[data.length-1].mz.toFixed(2)}<br>
-                        Mass accuracy: ±${massAccuracy} ppm
-                    </div>
-                `;
-                resultsContent.innerHTML = html;
+                resultsDiv.innerHTML = '<div class="status info">📊 Parsing data in chunks...</div>';
+                const data = await parseData(text);
                 
-                // Find isotope envelopes
-                const envelopes = await analyzer.findIsotopeEnvelopes(data);
-                
-                if (envelopes.length > 0) {
-                    html += `
-                        <div class="status success">
-                            🎯 Found ${envelopes.length} isotope envelopes
-                        </div>
-                        <table class="data-table">
-                            <tr>
-                                <th>Centroid m/z</th>
-                                <th>Charge z</th>
-                                <th>Molecular Mass</th>
-                                <th>Peaks</th>
-                                <th>Avg Spacing</th>
-                                <th>Spacing Error</th>
-                            </tr>
-                    `;
-                    
-                    envelopes.forEach(env => {
-                        html += `
-                            <tr>
-                                <td>${env.centroidMz.toFixed(4)}</td>
-                                <td style="font-weight: bold; color: #4f46e5;">${env.chargeState}−</td>
-                                <td>${env.molecularMass.toFixed(1)}</td>
-                                <td>${env.peakCount}</td>
-                                <td>${env.avgSpacing.toFixed(4)}</td>
-                                <td>${(env.spacingError * 100).toFixed(1)}%</td>
-                            </tr>
-                        `;
-                    });
-                    
-                    html += '</table>';
-                } else {
-                    html += `
-                        <div class="status warning">
-                            ⚠️ No isotope envelopes detected. Check data quality or adjust parameters.
-                        </div>
-                    `;
-                    resultsContent.innerHTML = html;
-                    return;
+                if (data.length === 0) {
+                    throw new Error('No valid data found in file');
                 }
                 
-                // Match compositions with progress tracking
-                const dnaComposition = calculateDNAComposition(dnaSequence, 2);
+                // Process with progress updates
+                resultsDiv.innerHTML = '<div class="status info">🎯 Finding peaks with storage support...</div>';
+                const peaks = await finder.findPeaks(data);
                 
-                html += `
-                    <div class="status info">
-                        🧮 Matching compositions... (this may take a moment)
-                    </div>
-                `;
-                resultsContent.innerHTML = html;
+                resultsDiv.innerHTML = '<div class="status info">📦 Detecting isotope envelopes...</div>';
+                const envelopes = await finder.findEnvelopes(peaks);
                 
-                const compositions = await analyzer.matchCompositions(envelopes, dnaComposition, emissionColor);
+                resultsDiv.innerHTML = '<div class="status info">🔬 Matching silver clusters...</div>';
+                const clusters = await finder.matchClusters(envelopes, dnaSeq, color);
                 
-                html += `
-                    <div class="status success">
-                        🧬 DNA: C${dnaComposition.C}H${dnaComposition.H}N${dnaComposition.N}O${dnaComposition.O}P${dnaComposition.P}
-                    </div>
-                `;
-                
-                if (compositions.length > 0) {
-                    html += `
-                        <div class="status success">
-                            🎯 Matched ${compositions.length} compositions
-                        </div>
-                        <table class="data-table">
-                            <tr>
-                                <th>m/z (centroid)</th>
-                                <th>z</th>
-                                <th>NAg</th>
-                                <th>N₀</th>
-                                <th>Qcl</th>
-                                <th>nCl</th>
-                                <th>ppm Error</th>
-                                <th>Expected?</th>
-                                <th>Formula</th>
-                            </tr>
-                    `;
-                    
-                    compositions.forEach(comp => {
-                        const expectedIcon = comp.matchesExpected ? '✅' : '⚪';
-                        const bgColor = comp.matchesExpected ? '#f0fdf4' : 'white';
-                        
-                        html += `
-                            <tr style="background-color: ${bgColor};">
-                                <td>${comp.envelope.centroidMz.toFixed(4)}</td>
-                                <td style="font-weight: bold;">${comp.envelope.chargeState}−</td>
-                                <td style="color: #4f46e5; font-weight: bold;">${comp.totalAg}</td>
-                                <td style="color: #059669; font-weight: bold;">${comp.N0}</td>
-                                <td style="color: #dc2626; font-weight: bold;">${comp.Qcl}</td>
-                                <td>${comp.nCl}</td>
-                                <td>${comp.ppmError.toFixed(1)}</td>
-                                <td style="font-weight: bold;">${expectedIcon}</td>
-                                <td style="font-size: 0.7em; font-family: monospace;">${comp.molecularFormula}</td>
-                            </tr>
-                        `;
-                    });
-                    
-                    html += '</table>';
-                    
-                    html += `
-                        <div class="status info">
-                            <strong>🔬 Analysis Summary:</strong><br>
-                            • <strong>Isotope envelopes:</strong> Groups of peaks with 1/z spacing<br>
-                            • <strong>Charge states:</strong> Determined from isotope spacing<br>
-                            • <strong>Molecular masses:</strong> Centroid m/z × charge state<br>
-                            • <strong>✅ Expected N₀:</strong> Matches ${emissionColor} emission prediction<br>
-                            • <strong>Mass accuracy:</strong> All matches within ${massAccuracy} ppm
-                        </div>
-                    `;
-                    
-                    // Plot results
-                    setTimeout(() => {
-                        plotEnvelopeAnalysis(data, envelopes, compositions, file.name);
-                    }, 100);
-                } else {
-                    html += `
-                        <div class="status warning">
-                            ⚠️ No compositions matched within ${massAccuracy} ppm mass accuracy
-                        </div>
-                    `;
-                }
-                
-                resultsContent.innerHTML = html;
+                // Display results
+                displayResults(data, peaks, envelopes, clusters, file.name, dnaSeq, color);
                 
             } catch (error) {
                 console.error('Analysis error:', error);
-                resultsContent.innerHTML = `
-                    <div class="status error">
-                        ❌ Error: ${error.message}
-                    </div>
-                `;
+                resultsDiv.innerHTML = `<div class="status error">❌ ${error.message}</div>`;
             }
         }
         
-        // Plot envelope analysis results with memory management
-        function plotEnvelopeAnalysis(data, envelopes, compositions, filename) {
+        // Display results
+        function displayResults(data, peaks, envelopes, clusters, filename, dnaSeq, color) {
+            const resultsDiv = document.getElementById('resultsContent');
+            
+            let html = `
+                <div class="status success">
+                    ✅ Analysis complete for ${filename}
+                </div>
+                <div class="status info">
+                    📊 Found ${peaks.length} peaks → ${envelopes.length} envelopes → ${clusters.length} clusters<br>
+                    🧬 DNA: ${dnaSeq} (expected ${color} emission)
+                </div>
+            `;
+            
+            if (envelopes.length > 0) {
+                html += `
+                    <h4>🎯 Isotope Envelopes</h4>
+                    <table class="data-table">
+                        <tr><th>Centroid m/z</th><th>Charge</th><th>Mass (Da)</th><th>Peaks</th><th>Spacing</th></tr>
+                `;
+                
+                envelopes.slice(0, 10).forEach(env => {
+                    html += `
+                        <tr>
+                            <td>${env.centroid.toFixed(4)}</td>
+                            <td>${env.charge}−</td>
+                            <td>${env.mass.toFixed(1)}</td>
+                            <td>${env.peakCount}</td>
+                            <td>${env.spacing.toFixed(4)}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += '</table>';
+            }
+            
+            if (clusters.length > 0) {
+                html += `
+                    <h4>🥈 Silver Clusters</h4>
+                    <table class="data-table">
+                        <tr><th>m/z</th><th>z</th><th>AgN</th><th>N₀</th><th>Qcl</th><th>nCl</th><th>ppm</th><th>Match?</th></tr>
+                `;
+                
+                clusters.slice(0, 15).forEach(cluster => {
+                    const match = cluster.matchesExpected ? '✅' : '⚪';
+                    const bg = cluster.matchesExpected ? '#f0fdf4' : 'white';
+                    
+                    html += `
+                        <tr style="background: ${bg}">
+                            <td>${cluster.envelope.centroid.toFixed(4)}</td>
+                            <td>${cluster.envelope.charge}−</td>
+                            <td style="font-weight:bold;color:#4f46e5">${cluster.nAg}</td>
+                            <td style="font-weight:bold;color:#059669">${cluster.N0}</td>
+                            <td style="color:#dc2626">${cluster.Qcl}</td>
+                            <td>${cluster.nCl}</td>
+                            <td>${cluster.ppmError.toFixed(1)}</td>
+                            <td>${match}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += '</table>';
+                
+                html += `
+                    <div class="status info">
+                        <strong>🔬 Cluster Summary:</strong><br>
+                        • Found ${clusters.filter(c => c.matchesExpected).length} clusters matching expected N₀<br>
+                        • Charge states: ${[...new Set(envelopes.map(e => e.charge))].join(', ')}<br>
+                        • AgN range: ${Math.min(...clusters.map(c => c.nAg))} - ${Math.max(...clusters.map(c => c.nAg))}<br>
+                        • Best accuracy: ${Math.min(...clusters.map(c => c.ppmError)).toFixed(1)} ppm
+                    </div>
+                `;
+            } else {
+                html += '<div class="status warning">⚠️ No silver clusters found matching criteria</div>';
+            }
+            
+            resultsDiv.innerHTML = html;
+            
+            // Plot if we have results
+            if (envelopes.length > 0) {
+                setTimeout(() => plotResults(data, envelopes, clusters, filename), 100);
+            }
+        }
+        
+        // Simple plotting
+        function plotResults(data, envelopes, clusters, filename) {
             try {
                 const plotDiv = document.createElement('div');
                 plotDiv.className = 'plot-container';
-                plotDiv.id = `envelope-plot-${Date.now()}`;
+                plotDiv.id = 'cluster-plot';
                 document.getElementById('resultsContent').appendChild(plotDiv);
                 
-                const traces = [];
-                
-                // Aggressively sample large datasets to prevent memory issues
-                const maxPlotPoints = 5000; // Reduced from 20000
+                // Downsample large datasets
                 let plotData = data;
-                if (data.length > maxPlotPoints) {
-                    const step = Math.ceil(data.length / maxPlotPoints);
-                    plotData = [];
-                    for (let i = 0; i < data.length; i += step) {
-                        plotData.push(data[i]);
-                    }
-                    console.log(`Downsampled spectrum: ${data.length} → ${plotData.length} points`);
+                if (data.length > 3000) {
+                    const step = Math.ceil(data.length / 3000);
+                    plotData = data.filter((_, i) => i % step === 0);
                 }
                 
-                // Full spectrum
-                traces.push({
+                const traces = [{
                     x: plotData.map(d => d.mz),
                     y: plotData.map(d => d.intensity),
                     type: 'scatter',
                     mode: 'lines',
-                    name: 'MS Spectrum',
+                    name: 'Spectrum',
                     line: {color: '#374151', width: 1}
-                });
+                }];
                 
-                // Envelope centroids (limit to top 20)
+                // Add envelope centroids
                 if (envelopes.length > 0) {
-                    const topEnvelopes = envelopes.slice(0, 20);
                     traces.push({
-                        x: topEnvelopes.map(e => e.centroidMz),
-                        y: topEnvelopes.map(e => e.maxIntensity),
+                        x: envelopes.map(e => e.centroid),
+                        y: envelopes.map(e => e.maxIntensity),
                         type: 'scatter',
                         mode: 'markers',
-                        name: 'Envelope Centroids',
-                        marker: {color: '#6b7280', size: 10, symbol: 'diamond'}
+                        name: 'Envelopes',
+                        marker: {color: '#6366f1', size: 8}
                     });
                 }
                 
-                // Matched compositions (limit to top 15)
-                if (compositions.length > 0) {
-                    const topCompositions = compositions.slice(0, 15);
-                    const expectedComps = topCompositions.filter(c => c.matchesExpected);
-                    const otherComps = topCompositions.filter(c => !c.matchesExpected);
-                    
-                    if (expectedComps.length > 0) {
+                // Add matched clusters
+                if (clusters.length > 0) {
+                    const matched = clusters.filter(c => c.matchesExpected);
+                    if (matched.length > 0) {
                         traces.push({
-                            x: expectedComps.map(c => c.envelope.centroidMz),
-                            y: expectedComps.map(c => c.envelope.maxIntensity),
+                            x: matched.map(c => c.envelope.centroid),
+                            y: matched.map(c => c.envelope.maxIntensity),
                             type: 'scatter',
                             mode: 'markers',
-                            name: 'Expected N₀',
-                            marker: {color: '#10b981', size: 15, symbol: 'star'}
-                        });
-                    }
-                    
-                    if (otherComps.length > 0) {
-                        traces.push({
-                            x: otherComps.map(c => c.envelope.centroidMz),
-                            y: otherComps.map(c => c.envelope.maxIntensity),
-                            type: 'scatter',
-                            mode: 'markers',
-                            name: 'Other Matches',
-                            marker: {color: '#3b82f6', size: 12, symbol: 'circle'}
+                            name: 'Expected Clusters',
+                            marker: {color: '#10b981', size: 12, symbol: 'star'}
                         });
                     }
                 }
                 
-                const layout = {
-                    title: `${filename} - Isotope Envelope Analysis`,
+                Plotly.newPlot('cluster-plot', traces, {
+                    title: `${filename} - Silver Cluster Analysis`,
                     xaxis: {title: 'm/z'},
                     yaxis: {title: 'Intensity'},
-                    showlegend: true,
-                    height: 500
-                };
+                    height: 400
+                }, {responsive: true});
                 
-                // Use configuration to optimize performance
-                const config = {
-                    responsive: true,
-                    displayModeBar: true,
-                    displaylogo: false,
-                    modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d']
-                };
-                
-                Plotly.newPlot(plotDiv.id, traces, layout, config);
-                
-            } catch (plotError) {
-                console.error('Plotting error:', plotError);
-                // Fallback: create simple text summary if plotting fails
-                const plotDiv = document.createElement('div');
-                plotDiv.innerHTML = `
-                    <div class="status warning">
-                        ⚠️ Plotting failed due to memory constraints. 
-                        Analysis completed successfully with ${envelopes.length} envelopes 
-                        and ${compositions.length} matched compositions.
-                    </div>
-                `;
-                document.getElementById('resultsContent').appendChild(plotDiv);
+            } catch (error) {
+                console.error('Plot error:', error);
             }
         }
         
         // File upload handler
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const label = document.querySelector('.file-upload-label');
-            if (e.target.files.length > 0) {
+            if (e.target.files[0]) {
                 const file = e.target.files[0];
                 const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-                label.innerHTML = `📁 ${file.name} (${sizeMB}MB)<br><small>Ready for envelope analysis</small>`;
+                label.innerHTML = `📁 ${file.name} (${sizeMB}MB)<br><small>Ready for analysis</small>`;
             }
         });
     </script>
